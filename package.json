@@ -1,0 +1,24 @@
+{
+  "name": "jarvis-voice-sight",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Mock-first real-time voice companion MVP from v0.1 to v0.2.",
+  "workspaces": [
+    "apps/web",
+    "services/orchestrator",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w services/orchestrator\" \"npm run dev -w apps/web\"",
+    "test": "npm run test -w services/orchestrator",
+    "lint": "node scripts/lint.mjs",
+    "typecheck": "npm run typecheck -w packages/shared && npm run typecheck -w services/orchestrator && npm run typecheck -w apps/web",
+    "benchmark": "tsx scripts/benchmark.ts"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "playwright": "^1.60.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
