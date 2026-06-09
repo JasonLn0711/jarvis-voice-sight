@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+:root {
+  --bg-main: #08090C;
+  --bg-surface: rgba(255, 255, 255, 0.06);
+  --bg-surface-strong: rgba(255, 255, 255, 0.10);
+
+  --text-primary: #F5F5F7;
+  --text-secondary: rgba(245, 245, 247, 0.68);
+  --text-tertiary: rgba(245, 245, 247, 0.42);
+
+  --accent: #A7C7FF;
+  --accent-strong: #D7E6FF;
+  --accent-muted: rgba(167, 199, 255, 0.16);
+
+  --listening: #A7C7FF;
+  --thinking: #C9B8FF;
+  --speaking: #B7F7D4;
+  --error: #FF9A9A;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+  background: var(--bg-main);
+  color: var(--text-primary);
+}
+
+body {
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Display",
+    "SF Pro Text",
+    "Inter",
+    "Noto Sans TC",
+    sans-serif;
+  letter-spacing: 0;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: var(--accent-muted);
+  color: var(--text-primary);
+}
+
+.premium-canvas {
+  min-height: 100svh;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(167, 199, 255, 0.18), transparent 34rem),
+    radial-gradient(circle at 20% 80%, rgba(183, 247, 212, 0.08), transparent 28rem),
+    linear-gradient(180deg, #0b0c11 0%, var(--bg-main) 58%, #050609 100%);
+}
+
+.glass-panel {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, var(--bg-surface-strong), var(--bg-surface));
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(22px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
