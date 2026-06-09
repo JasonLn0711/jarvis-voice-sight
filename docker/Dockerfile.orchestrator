@@ -1,0 +1,11 @@
+FROM node:24-bookworm-slim
+
+WORKDIR /app
+COPY package.json tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/package.json
+COPY services/orchestrator/package.json services/orchestrator/package.json
+RUN npm install
+COPY packages/shared packages/shared
+COPY services/orchestrator services/orchestrator
+
+CMD ["npm", "run", "start", "-w", "services/orchestrator"]

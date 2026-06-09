@@ -1,0 +1,50 @@
+services:
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.orchestrator
+    env_file:
+      - ../.env.example
+    ports:
+      - "3000:3000"
+
+  web:
+    image: node:24-bookworm-slim
+    working_dir: /app
+    command: sh -lc "npm install && npm run dev -w apps/web"
+    volumes:
+      - ..:/app
+    environment:
+      NEXT_PUBLIC_ORCHESTRATOR_URL: http://localhost:3000
+    ports:
+      - "3001:3001"
+    depends_on:
+      - orchestrator
+
+  asr-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.asr
+    ports:
+      - "8001:8001"
+
+  llm-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.llm
+    ports:
+      - "8002:8002"
+
+  tts-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tts
+    ports:
+      - "8003:8003"
+
+  emotion-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.emotion
+    ports:
+      - "8004:8004"
