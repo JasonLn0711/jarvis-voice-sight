@@ -14,13 +14,15 @@
     "lint": "node scripts/lint.mjs",
     "typecheck": "npm run typecheck -w packages/shared && npm run typecheck -w services/orchestrator && npm run typecheck -w apps/web",
     "benchmark": "tsx scripts/benchmark.ts",
+    "smoke:realtime": "tsx scripts/realtime_smoke.ts",
     "real:convert-asr": "scripts/convert_breeze_asr_ct2.sh",
     "real:health": "tsx scripts/real_health.ts",
     "real:pull-gemma": "scripts/pull_gemma4_e2b.sh",
     "real:start-ollama": "scripts/start_ollama_docker.sh",
     "real:start-asr": "scripts/start_breeze_asr_gpu.sh",
     "real:start-breezyvoice": "scripts/start_breezyvoice_upstream_gpu.sh",
-    "real:preflight": "scripts/real_model_preflight.sh"
+    "real:preflight": "scripts/real_model_preflight.sh",
+    "demo:real": "scripts/demo_real.sh"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

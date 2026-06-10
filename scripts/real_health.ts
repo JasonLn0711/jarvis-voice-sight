@@ -3,8 +3,8 @@ import { buildServer, createDependencies } from "../services/orchestrator/src/se
 
 const config = loadConfig({
   APP_ENV: "test",
-  ASR_PROVIDER: "breeze_asr_25",
-  LLM_PROVIDER: "gemma_4_e2b",
+  ASR_PROVIDER: "breeze_asr",
+  LLM_PROVIDER: "ollama",
   TTS_PROVIDER: "breezyvoice",
   EMOTION_PROVIDER: "mock"
 });

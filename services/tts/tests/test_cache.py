@@ -1,6 +1,7 @@
 import importlib
 import os
 import tempfile
+import time
 import unittest
 
 
@@ -69,6 +70,32 @@ class TTSCachingTests(unittest.TestCase):
         self.assertTrue(second["ttsCacheHit"])
         self.assertEqual(second["upstreamTtsMs"], 0)
         self.assertTrue(second["audioUrl"].startswith("/audio/cache/"))
+
+    def test_cache_hit_returns_under_500ms(self):
+        def fake_uncached(request):
+            return b"RIFFfast-cache", 111
+
+        original = self.server.synthesize_uncached
+        self.server.synthesize_uncached = fake_uncached
+        try:
+            request = self.server.TTSRequest(text="好，我在。", voiceId="jarvis_default_zh_tw", speed=1.0)
+            self.server.synthesize_with_cache(request)
+        finally:
+            self.server.synthesize_uncached = original
+
+        def should_not_call(_request):
+            raise AssertionError("upstream TTS should not be called on cache hit")
+
+        self.server.synthesize_uncached = should_not_call
+        try:
+            start = time.perf_counter()
+            result = self.server.synthesize_with_cache(request)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+        finally:
+            self.server.synthesize_uncached = original
+
+        self.assertTrue(result["ttsCacheHit"])
+        self.assertLess(elapsed_ms, 500)
 
     def test_reply_text_is_normalized_before_cache_lookup(self):
         calls = []

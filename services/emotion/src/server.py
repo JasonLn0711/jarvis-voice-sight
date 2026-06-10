@@ -7,6 +7,7 @@ app = FastAPI(title="Jarvis Mock Emotion Service")
 class EmotionRequest(BaseModel):
     text: str
     recentMessages: list[dict] = []
+    turn_id: str | None = None
 
 
 RULES = [

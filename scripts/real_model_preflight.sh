@@ -3,7 +3,7 @@ set -euo pipefail
 
 ASR_MODEL_DIR="${BREEZE_ASR_CT2_MODEL_PATH:-models/breeze-asr-25-ct2}"
 OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://localhost:11434}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-gemma4:e2b}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-gemma4:e4b}"
 OLLAMA_DOCKER_CONTAINER="${OLLAMA_DOCKER_CONTAINER:-jarvis-ollama}"
 OLLAMA_RUNTIME="${OLLAMA_RUNTIME:-native}"
 OLLAMA_BIN="${OLLAMA_BIN:-.local/ollama/extract/bin/ollama}"

@@ -22,6 +22,7 @@ BREEZE_ASR_VAD_FILTER = os.getenv("BREEZE_ASR_VAD_FILTER", "true") == "true"
 class ASRRequest(BaseModel):
     audio_format: str
     audio_base64: str
+    turn_id: str | None = None
 
 
 def transcript_for(audio_base64: str) -> str:

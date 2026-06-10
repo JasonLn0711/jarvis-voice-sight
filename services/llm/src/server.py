@@ -6,12 +6,13 @@ import urllib.request
 from functools import lru_cache
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="Jarvis Gemma LLM Service")
 
 LLM_RUNTIME = os.getenv("LLM_RUNTIME", "mock")
-GEMMA_MODEL_ID = os.getenv("GEMMA_MODEL_ID", "google/gemma-4-E2B-it")
+GEMMA_MODEL_ID = os.getenv("GEMMA_MODEL_ID", "google/gemma-4-E4B-it")
 GEMMA_TRANSFORMERS_DEVICE = os.getenv("GEMMA_TRANSFORMERS_DEVICE", "cuda")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:e2b")
@@ -19,6 +20,8 @@ OLLAMA_THINK = os.getenv("OLLAMA_THINK", "false").lower() == "true"
 OPENAI_COMPATIBLE_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:1234/v1")
 OPENAI_COMPATIBLE_API_KEY = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
 OPENAI_COMPATIBLE_MODEL = os.getenv("OPENAI_COMPATIBLE_MODEL", GEMMA_MODEL_ID)
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+VLLM_MODEL = os.getenv("VLLM_MODEL", "gemma-4-e2b")
 LLM_GENERATION_TIMEOUT_S = float(os.getenv("LLM_GENERATION_TIMEOUT_S", "30"))
 
 
@@ -32,6 +35,7 @@ class ChatRequest(BaseModel):
     text: str
     prompt: str | None = None
     emotion: Emotion | None = None
+    turn_id: str | None = None
 
 
 def post_json(url: str, payload: dict, headers: dict | None = None, timeout: float = LLM_GENERATION_TIMEOUT_S):
@@ -79,11 +83,42 @@ def generate_with_ollama(request: ChatRequest):
     }
 
 
-def generate_with_openai_compatible(request: ChatRequest):
+def stream_with_ollama(request: ChatRequest):
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt(request)},
+            {"role": "user", "content": request.text},
+        ],
+        "stream": True,
+        "think": OLLAMA_THINK,
+        "options": {"temperature": 0.4, "num_predict": 48},
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        f"{OLLAMA_BASE_URL.rstrip('/')}/api/chat",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=LLM_GENERATION_TIMEOUT_S) as response:
+        for raw_line in response:
+            if not raw_line.strip():
+                continue
+            event = json.loads(raw_line.decode("utf-8"))
+            token = event.get("message", {}).get("content", "")
+            if token:
+                yield {"token": token, "done": False}
+            if event.get("done"):
+                yield {"done": True}
+                return
+
+
+def generate_with_openai_compatible_runtime(request: ChatRequest, base_url: str, model: str):
     start = time.perf_counter()
     headers = {"Authorization": f"Bearer {OPENAI_COMPATIBLE_API_KEY}"} if OPENAI_COMPATIBLE_API_KEY else {}
     payload = {
-        "model": OPENAI_COMPATIBLE_MODEL,
+        "model": model,
         "messages": [
             {"role": "system", "content": system_prompt(request)},
             {"role": "user", "content": request.text},
@@ -92,7 +127,7 @@ def generate_with_openai_compatible(request: ChatRequest):
         "max_tokens": 48,
     }
     result = post_json(
-        f"{OPENAI_COMPATIBLE_BASE_URL.rstrip('/')}/chat/completions",
+        f"{base_url.rstrip('/')}/chat/completions",
         payload,
         headers=headers,
     )
@@ -105,6 +140,18 @@ def generate_with_openai_compatible(request: ChatRequest):
         "durationMs": int((time.perf_counter() - start) * 1000),
         "finishReason": choice.get("finish_reason", "stop"),
     }
+
+
+def generate_with_openai_compatible(request: ChatRequest):
+    return generate_with_openai_compatible_runtime(
+        request,
+        OPENAI_COMPATIBLE_BASE_URL,
+        OPENAI_COMPATIBLE_MODEL,
+    )
+
+
+def generate_with_vllm(request: ChatRequest):
+    return generate_with_openai_compatible_runtime(request, VLLM_BASE_URL, VLLM_MODEL)
 
 
 def resolve_transformers_device():
@@ -230,6 +277,7 @@ def health():
         "model": {
             "mock": "mock",
             "ollama": OLLAMA_MODEL,
+            "vllm": VLLM_MODEL,
             "openai_compatible": OPENAI_COMPATIBLE_MODEL,
             "transformers": GEMMA_MODEL_ID,
         }.get(LLM_RUNTIME, "mock"),
@@ -243,6 +291,8 @@ def chat(request: ChatRequest):
         return generate_with_ollama(request)
     if LLM_RUNTIME == "openai_compatible":
         return generate_with_openai_compatible(request)
+    if LLM_RUNTIME == "vllm":
+        return generate_with_vllm(request)
     if LLM_RUNTIME == "transformers":
         return generate_with_transformers(request)
 
@@ -252,3 +302,30 @@ def chat(request: ChatRequest):
         "durationMs": 180,
         "finishReason": "stop",
     }
+
+
+@app.post("/chat/stream")
+def chat_stream(request: ChatRequest):
+    def events():
+        if LLM_RUNTIME == "ollama":
+            yield from stream_with_ollama(request)
+            return
+
+        if LLM_RUNTIME == "openai_compatible":
+            reply = generate_with_openai_compatible(request)["reply"]
+        elif LLM_RUNTIME == "vllm":
+            reply = generate_with_vllm(request)["reply"]
+        elif LLM_RUNTIME == "transformers":
+            reply = generate_with_transformers(request)["reply"]
+        else:
+            reply = reply_for(request.text, request.emotion)
+
+        for token in reply:
+            yield {"token": token, "done": False}
+        yield {"done": True}
+
+    def lines():
+        for event in events():
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson")

@@ -45,6 +45,7 @@ FIXED_CACHE_REPLIES = {
     "你說。",
     "我懂。",
     "繼續說。",
+    "先別急。",
     "你最擔心哪一點？",
     "用一句話收尾。",
     "這個成果很關鍵。",
@@ -61,7 +62,10 @@ FIXED_CACHE_REPLIES = {
     "這樣講可以。",
     "你可以慢慢說。",
     "先抓最小版本。",
+    "可以，這樣順。",
+    "這段可以收斂。",
     "你已經接近了。",
+    "我們先拆小。",
     "這裡先求穩。",
     "先建立信任感。",
     "先聽他的顧慮。",
@@ -86,6 +90,15 @@ FIXED_CACHE_REPLIES = {
 
 DEFAULT_WARMUP_REPLIES = [
     "好，我在。",
+    "我懂。",
+    "繼續說。",
+    "先別急。",
+    "這裡先求穩。",
+    "可以，這樣順。",
+    "先抓最小版本。",
+    "這段可以收斂。",
+    "你已經接近了。",
+    "我們先拆小。",
     "先建立信任感。",
     "先聽他的顧慮。",
     "用關心開場。",
@@ -114,6 +127,7 @@ class TTSRequest(BaseModel):
     speed: float | None = 1.0
     pitch: float | None = None
     emotionStyle: str | None = None
+    turn_id: str | None = None
 
 
 def now_ms(start: float) -> int:
@@ -199,6 +213,7 @@ def response_from_audio(
     cache_hit: bool,
     upstream_tts_ms: int,
     normalized_text: str,
+    turn_id: str | None,
 ) -> dict:
     audio_base64, audio_encode_ms = encode_audio(audio)
     total_ms = now_ms(start)
@@ -206,6 +221,7 @@ def response_from_audio(
         json.dumps(
             {
                 "event": "tts_completed",
+                "turn_id": turn_id,
                 "tts_cache_hit": cache_hit,
                 "upstream_tts_ms": upstream_tts_ms,
                 "audio_encode_ms": audio_encode_ms,
@@ -310,6 +326,7 @@ def synthesize_with_cache(request: TTSRequest):
                 cache_hit=True,
                 upstream_tts_ms=0,
                 normalized_text=normalized_text,
+                turn_id=request.turn_id,
             )
 
         canonical_path = canonical_cache_path_for(request, normalized_text)
@@ -322,6 +339,7 @@ def synthesize_with_cache(request: TTSRequest):
                 cache_hit=True,
                 upstream_tts_ms=0,
                 normalized_text=normalized_text,
+                turn_id=request.turn_id,
             )
 
         audio, upstream_tts_ms = synthesize_uncached(request)
@@ -333,6 +351,7 @@ def synthesize_with_cache(request: TTSRequest):
             cache_hit=False,
             upstream_tts_ms=upstream_tts_ms,
             normalized_text=normalized_text,
+            turn_id=request.turn_id,
         )
 
     audio, upstream_tts_ms = synthesize_uncached(request)
@@ -345,6 +364,7 @@ def synthesize_with_cache(request: TTSRequest):
         cache_hit=False,
         upstream_tts_ms=upstream_tts_ms,
         normalized_text=normalized_text,
+        turn_id=request.turn_id,
     )
 
 
