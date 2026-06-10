@@ -10,6 +10,7 @@ export type AudioInput = {
   audioFormat: VoiceTurnRequest["audio_format"];
   audioBase64: string;
   sessionId?: string;
+  turnId?: string;
 };
 
 export type VADResult = {
@@ -24,12 +25,14 @@ export type LLMInput = {
   recentMessages: Message[];
   persona: PersonaConfig;
   prompt: string;
+  turnId?: string;
   emotion?: EmotionResult;
 };
 
 export type TTSInput = {
   text: string;
   voiceId: string;
+  turnId?: string;
   speed?: number;
   pitch?: number;
   emotionStyle?: string;
@@ -38,6 +41,7 @@ export type TTSInput = {
 export type EmotionInput = {
   text: string;
   recentMessages: Message[];
+  turnId?: string;
 };
 
 export interface VADPort {
@@ -48,13 +52,20 @@ export interface ASRPort {
   transcribe(input: AudioInput): Promise<ASRResult>;
 }
 
+export type AsrProvider = ASRPort;
+
 export interface LLMPort {
   generate(input: LLMInput): Promise<ChatResult>;
+  stream?(input: LLMInput): AsyncIterable<string>;
 }
+
+export type LlmProvider = LLMPort;
 
 export interface TTSPort {
   synthesize(input: TTSInput): Promise<TTSResult>;
 }
+
+export type TtsProvider = TTSPort;
 
 export interface EmotionPort {
   classify(input: EmotionInput): Promise<EmotionResult>;

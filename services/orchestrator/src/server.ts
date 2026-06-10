@@ -14,8 +14,10 @@ import { EventBus } from "./events/EventBus.js";
 import { ResponseCanonicalizer } from "./policy/ResponseCanonicalizer.js";
 import { ResponseRepairEngine } from "./policy/ResponseRepairEngine.js";
 import { ResponsePolicyEngine } from "./policy/ResponsePolicyEngine.js";
+import { TtsTextFinalizer } from "./policy/TtsTextFinalizer.js";
 import { InMemoryConversationRepository } from "./repositories/ConversationRepository.js";
 import { ConciseJarvisStrategy, EmotionAwareJarvisStrategy } from "./strategies/ResponseStrategy.js";
+import { StreamingVoiceTurnUseCase } from "./usecases/StreamingVoiceTurnUseCase.js";
 import { VoiceTurnUseCase, type VoiceTurnDependencies } from "./usecases/VoiceTurnUseCase.js";
 import { createSilentWavBuffer } from "./utils/wav.js";
 
@@ -39,6 +41,7 @@ export function createDependencies(
     emotion: adapters.emotion,
     conversationRepository: new InMemoryConversationRepository(config.MAX_RECENT_MESSAGES),
     responseCanonicalizer: new ResponseCanonicalizer(),
+    ttsTextFinalizer: new TtsTextFinalizer(config.REPLY_MAX_CHARS),
     responsePolicy: new ResponsePolicyEngine(config.REPLY_MAX_CHARS),
     responseRepair: new ResponseRepairEngine(),
     conciseStrategy: new ConciseJarvisStrategy(),
@@ -59,6 +62,7 @@ export async function buildServer(deps: ServerDependencies = createDependencies(
   });
 
   const voiceTurnUseCase = new VoiceTurnUseCase(deps);
+  const streamingVoiceTurnUseCase = new StreamingVoiceTurnUseCase(deps);
 
   app.get("/api/v1/health", async () => {
     const emotionStatus = deps.config.ENABLE_EMOTION ? "ready" : "disabled";
@@ -91,6 +95,36 @@ export async function buildServer(deps: ServerDependencies = createDependencies(
     return voiceTurnUseCase.execute(parsed.data);
   });
 
+  app.post("/api/v1/voice-turn-stream", async (request, reply) => {
+    const parsed = voiceTurnRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        status: "error",
+        message: "Invalid voice turn stream request"
+      });
+    }
+
+    reply.raw.writeHead(200, {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive"
+    });
+
+    const abortController = new AbortController();
+    reply.raw.on("close", () => abortController.abort());
+
+    for await (const event of streamingVoiceTurnUseCase.execute(parsed.data, abortController.signal)) {
+      if (abortController.signal.aborted) {
+        break;
+      }
+      reply.raw.write(`${JSON.stringify(event)}\n`);
+    }
+    if (!reply.raw.destroyed) {
+      reply.raw.end();
+    }
+    return reply;
+  });
+
   app.post("/api/v1/asr", async (request, reply) => {
     const parsed = asrRequestSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -98,7 +132,8 @@ export async function buildServer(deps: ServerDependencies = createDependencies(
     }
     return deps.asr.transcribe({
       audioFormat: parsed.data.audio_format,
-      audioBase64: parsed.data.audio_base64
+      audioBase64: parsed.data.audio_base64,
+      ...(parsed.data.turn_id ? { turnId: parsed.data.turn_id } : {})
     });
   });
 
@@ -111,7 +146,11 @@ export async function buildServer(deps: ServerDependencies = createDependencies(
       ? await deps.conversationRepository.getRecentMessages(parsed.data.session_id)
       : [];
     const emotion = deps.config.ENABLE_EMOTION
-      ? await deps.emotion.classify({ text: parsed.data.text, recentMessages })
+      ? await deps.emotion.classify({
+          text: parsed.data.text,
+          recentMessages,
+          ...(parsed.data.turn_id ? { turnId: parsed.data.turn_id } : {})
+        })
       : undefined;
     const prompt = (emotion ? deps.emotionAwareStrategy : deps.conciseStrategy).buildPrompt({
       userText: parsed.data.text,
@@ -136,6 +175,7 @@ export async function buildServer(deps: ServerDependencies = createDependencies(
         replyMaxChars: deps.config.REPLY_MAX_CHARS
       },
       prompt,
+      ...(parsed.data.turn_id ? { turnId: parsed.data.turn_id } : {}),
       ...(emotion ? { emotion } : {})
     });
   });
@@ -150,7 +190,8 @@ export async function buildServer(deps: ServerDependencies = createDependencies(
       voiceId: parsed.data.voiceId ?? "jarvis_default_zh_tw",
       ...(parsed.data.speed ? { speed: parsed.data.speed } : {}),
       ...(parsed.data.pitch ? { pitch: parsed.data.pitch } : {}),
-      ...(parsed.data.emotionStyle ? { emotionStyle: parsed.data.emotionStyle } : {})
+      ...(parsed.data.emotionStyle ? { emotionStyle: parsed.data.emotionStyle } : {}),
+      ...(parsed.data.turn_id ? { turnId: parsed.data.turn_id } : {})
     });
   });
 
@@ -161,7 +202,8 @@ export async function buildServer(deps: ServerDependencies = createDependencies(
     }
     return deps.emotion.classify({
       text: parsed.data.text,
-      recentMessages: parsed.data.recentMessages ?? []
+      recentMessages: parsed.data.recentMessages ?? [],
+      ...(parsed.data.turn_id ? { turnId: parsed.data.turn_id } : {})
     });
   });
 

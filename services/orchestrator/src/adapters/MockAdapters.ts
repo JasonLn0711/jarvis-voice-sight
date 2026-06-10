@@ -105,6 +105,13 @@ export class MockLLMAdapter implements LLMPort {
     };
   }
 
+  async *stream(input: LLMInput): AsyncIterable<string> {
+    const reply = this.replyFor(input);
+    for (const char of Array.from(reply)) {
+      yield char;
+    }
+  }
+
   private replyFor(input: LLMInput): string {
     if (input.userText.includes("long_output")) {
       return "這是一段太長太像一般聊天機器人的回答，應該被政策拒絕。";

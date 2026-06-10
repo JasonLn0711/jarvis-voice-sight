@@ -52,7 +52,7 @@ export class AdapterFactory {
     if (config.ASR_PROVIDER === "mock") {
       return new MockASRAdapter();
     }
-    if (config.ASR_PROVIDER === "breeze_asr_25") {
+    if (config.ASR_PROVIDER === "breeze_asr" || config.ASR_PROVIDER === "breeze_asr_25") {
       return new BreezeASRAdapter(config.ASR_SERVICE_URL, config.ASR_TIMEOUT_MS);
     }
     return new HttpASRAdapter(config.ASR_SERVICE_URL, config.ASR_TIMEOUT_MS);
@@ -61,6 +61,9 @@ export class AdapterFactory {
   private static createLLM(config: AppConfig): LLMPort {
     if (config.LLM_PROVIDER === "mock") {
       return new MockLLMAdapter();
+    }
+    if (config.LLM_PROVIDER === "ollama" || config.LLM_PROVIDER === "vllm") {
+      return new HttpLLMAdapter(config.LLM_SERVICE_URL, config.LLM_TIMEOUT_MS);
     }
     if (config.LLM_PROVIDER === "gemma_4_e2b") {
       return new GemmaE2BAdapter(config.LLM_SERVICE_URL, config.LLM_TIMEOUT_MS);

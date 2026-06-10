@@ -26,12 +26,29 @@ export const latencyReportSchema = z.object({
   asr_ms: z.number().nonnegative(),
   emotion_ms: z.number().nonnegative(),
   llm_ms: z.number().nonnegative(),
+  llm_first_token_ms: z.number().nonnegative().optional(),
+  llm_total_ms: z.number().nonnegative().optional(),
   policy_ms: z.number().nonnegative(),
   tts_ms: z.number().nonnegative(),
+  tts_first_audio_ms: z.number().nonnegative().optional(),
+  tts_total_ms: z.number().nonnegative().optional(),
   audio_encode_ms: z.number().nonnegative(),
   playback_delay_ms: z.number().nonnegative(),
+  playback_ms: z.number().nonnegative().optional(),
+  playback_start_ms: z.number().nonnegative().optional(),
   perceived_total_ms: z.number().nonnegative(),
-  total_ms: z.number().nonnegative()
+  total_ms: z.number().nonnegative(),
+  tts_cache_hit: z.boolean().optional(),
+  tts_parallel_chunks: z.number().int().nonnegative().optional(),
+  tts_chunk_count: z.number().int().nonnegative().optional(),
+  tts_parallelism: z.number().int().positive().optional(),
+  tts_time_to_first_audio_ms: z.number().nonnegative().optional(),
+  tts_total_synthesis_ms: z.number().nonnegative().optional(),
+  tts_merge_ms: z.number().nonnegative().optional(),
+  tts_cache_hit_count: z.number().int().nonnegative().optional(),
+  tts_cache_miss_count: z.number().int().nonnegative().optional(),
+  tts_first_chunk_cache_hit: z.boolean().optional(),
+  playback_start_delay_ms: z.number().nonnegative().optional()
 });
 
 export const voiceTurnResponseSchema = z.object({
@@ -48,7 +65,8 @@ export const voiceTurnResponseSchema = z.object({
 
 export const asrRequestSchema = z.object({
   audio_format: z.enum(["wav", "mp3", "webm", "mock"]),
-  audio_base64: z.string().min(1)
+  audio_base64: z.string().min(1),
+  turn_id: z.string().optional()
 });
 
 export const asrResultSchema = z.object({
@@ -69,7 +87,8 @@ export const asrResultSchema = z.object({
 
 export const chatRequestSchema = z.object({
   text: z.string(),
-  session_id: z.string().optional()
+  session_id: z.string().optional(),
+  turn_id: z.string().optional()
 });
 
 export const chatResultSchema = z.object({
@@ -84,7 +103,8 @@ export const ttsRequestSchema = z.object({
   voiceId: z.string().optional(),
   speed: z.number().positive().optional(),
   pitch: z.number().optional(),
-  emotionStyle: z.string().optional()
+  emotionStyle: z.string().optional(),
+  turn_id: z.string().optional()
 });
 
 export const ttsResultSchema = z.object({
@@ -100,7 +120,8 @@ export const ttsResultSchema = z.object({
 
 export const emotionRequestSchema = z.object({
   text: z.string(),
-  recentMessages: z.array(messageSchema).optional()
+  recentMessages: z.array(messageSchema).optional(),
+  turn_id: z.string().optional()
 });
 
 export type VoiceTurnRequest = z.infer<typeof voiceTurnRequestSchema>;

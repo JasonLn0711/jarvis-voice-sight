@@ -1,13 +1,23 @@
 import { describe, expect, it } from "vitest";
+import {
+  SentenceBuffer,
+  TtsQueue,
+  VadStateManager,
+  TurnPlaybackGuard,
+  buildMergedAudioMetadata,
+  planTtsChunks,
+  splitTtsSentences
+} from "@jarvis/shared";
 import { AdapterFactory } from "../factories/AdapterFactory.js";
 import { loadConfig } from "../config/env.js";
 import { CircuitBreaker } from "../domain/CircuitBreaker.js";
 import { MockASRAdapter, MockEmotionAdapter, classifyTextEmotion } from "../adapters/MockAdapters.js";
 import { BreezeASRAdapter, BreezyVoiceAdapter, GemmaE2BAdapter, GemmaE4BAdapter } from "../adapters/RealModelAdapters.js";
-import { HttpTTSAdapter } from "../adapters/HttpAdapters.js";
+import { HttpLLMAdapter, HttpTTSAdapter } from "../adapters/HttpAdapters.js";
 import { ResponseCanonicalizer } from "../policy/ResponseCanonicalizer.js";
 import { ResponseRepairEngine } from "../policy/ResponseRepairEngine.js";
 import { ResponsePolicyEngine } from "../policy/ResponsePolicyEngine.js";
+import { TtsTextFinalizer } from "../policy/TtsTextFinalizer.js";
 import { InMemoryConversationRepository } from "../repositories/ConversationRepository.js";
 import { ConciseJarvisStrategy, EmotionAwareJarvisStrategy } from "../strategies/ResponseStrategy.js";
 
@@ -142,6 +152,132 @@ describe("response repair", () => {
     });
     expect(repair.repaired).toBe(true);
     expect(repair.reply).toBe("先尊重他的節奏。");
+  });
+});
+
+describe("TTS text finalizer", () => {
+  it("removes markdown, JSON, URLs, role tags, and emojis", () => {
+    const finalizer = new TtsTextFinalizer(18);
+    const reply = 'Assistant: {"reply":"**我懂** 😊 https://example.com 先別急，這樣比較順"}';
+    expect(finalizer.finalize(reply)).toBe("我懂先別急，這樣比較順。");
+  });
+
+  it("keeps only a short spoken sentence", () => {
+    const finalizer = new TtsTextFinalizer(8);
+    expect(finalizer.finalize("這裡先求穩，後面再慢慢擴大。第二句不要播。")).toBe("這裡先求穩。");
+  });
+});
+
+describe("realtime voice primitives", () => {
+  it("moves from listening to ASR processing after speech and end silence", () => {
+    const manager = new VadStateManager();
+    expect(manager.startListening()).toBe("listening");
+    expect(manager.observe({ speechProbability: 0.7, nowMs: 0 })).toBe("user_speaking");
+    expect(manager.observe({ speechProbability: 0.2, nowMs: 250 })).toBe("user_speaking");
+    expect(manager.observe({ speechProbability: 0.2, nowMs: 960 })).toBe("asr_processing");
+  });
+
+  it("detects barge-in while Jarvis is speaking", () => {
+    const manager = new VadStateManager();
+    manager.markSpeaking();
+    expect(manager.observe({ speechProbability: 0.8, nowMs: 0, isPlaybackActive: true })).toBe("speaking");
+    expect(manager.observe({ speechProbability: 0.8, nowMs: 301, isPlaybackActive: true })).toBe("interrupted");
+  });
+
+  it("cancels queued TTS chunks by turn", () => {
+    const queue = new TtsQueue();
+    queue.enqueue("第一句。", "turn_old");
+    queue.enqueue("新句子。", "turn_new");
+    queue.cancel("turn_old");
+    expect(queue.dequeue("turn_old")).toBeUndefined();
+    expect(queue.dequeue("turn_new")).toMatchObject({ sentence: "新句子。", turnId: "turn_new" });
+  });
+
+  it("buffers streaming tokens until complete sentences", () => {
+    const buffer = new SentenceBuffer();
+    expect(buffer.push("先抓")).toEqual([]);
+    expect(buffer.push("住目標。下一")).toEqual(["先抓住目標。"]);
+    expect(buffer.push("句還沒完")).toEqual([]);
+    expect(buffer.flush()).toBe("下一句還沒完");
+  });
+
+  it("guards playback against stale turn IDs", () => {
+    const guard = new TurnPlaybackGuard();
+    guard.start("turn_1");
+    expect(guard.canPlay("turn_1")).toBe(true);
+    expect(guard.canPlay("turn_0")).toBe(false);
+    guard.start("turn_2");
+    expect(guard.canPlay("turn_1")).toBe(false);
+    expect(guard.canPlay("turn_2")).toBe(true);
+  });
+
+  it("does not duplicate queued playback across 50 turns", () => {
+    const queue = new TtsQueue();
+    for (let index = 0; index < 50; index += 1) {
+      queue.enqueue(`第${index}句。`, `turn_${index}`);
+    }
+
+    for (let index = 0; index < 50; index += 1) {
+      expect(queue.dequeue(`turn_${index}`)).toMatchObject({
+        sentence: `第${index}句。`,
+        turnId: `turn_${index}`
+      });
+      expect(queue.dequeue(`turn_${index}`)).toBeUndefined();
+    }
+  });
+});
+
+describe("long-form TTS primitives", () => {
+  it("splits Traditional Chinese and mixed text without breaking common abbreviations or URLs", () => {
+    expect(splitTtsSentences("先穩住。Dr. Lin 會看 https://example.com/path。下一步呢？")).toEqual([
+      "先穩住。",
+      "Dr. Lin 會看 https://example.com/path。",
+      "下一步呢？"
+    ]);
+  });
+
+  it("creates ordered non-empty chunks under the max duration estimate", () => {
+    const plan = planTtsChunks(
+      "第一句先建立信任感。第二句釐清家庭責任。第三句不要急著推產品。第四句收斂到下一步。",
+      "turn_long",
+      { targetChunkSeconds: 2, maxChunkSeconds: 5 }
+    );
+    expect(plan.chunks.length).toBeGreaterThan(1);
+    expect(plan.chunks.map((chunk) => chunk.index)).toEqual(plan.chunks.map((_, index) => index));
+    expect(plan.chunks.every((chunk) => chunk.text.trim().length > 0)).toBe(true);
+    expect(plan.chunks.every((chunk) => chunk.estimatedDurationMs <= 5000)).toBe(true);
+  });
+
+  it("splits an estimated 30-second answer into ordered chunks", () => {
+    const longAnswer = Array.from(
+      { length: 8 },
+      (_, index) => `第${index + 1}句先整理客戶需求，確認風險缺口和下一步安排。`
+    ).join("");
+    const plan = planTtsChunks(longAnswer, "turn_30s", {
+      targetChunkSeconds: 4,
+      maxChunkSeconds: 5
+    });
+    const estimatedTotalMs = plan.chunks.reduce((total, chunk) => total + chunk.estimatedDurationMs, 0);
+
+    expect(estimatedTotalMs).toBeGreaterThanOrEqual(30_000);
+    expect(plan.chunks.length).toBeGreaterThan(1);
+    expect(plan.chunks.map((chunk) => chunk.index)).toEqual(plan.chunks.map((_, index) => index));
+    expect(plan.chunks.every((chunk) => chunk.turnId === "turn_30s")).toBe(true);
+  });
+
+  it("builds merge metadata with bounded sentence silence padding", () => {
+    expect(buildMergedAudioMetadata(
+      [
+        { sequence: 1, durationMs: 1200 },
+        { sequence: 0, durationMs: 1000 }
+      ],
+      160
+    )).toMatchObject({
+      sampleRateVerified: true,
+      normalized: true,
+      silencePaddingMs: 160,
+      totalDurationMs: 2360
+    });
   });
 });
 
@@ -320,24 +456,53 @@ describe("adapter factory", () => {
       loadConfig({
         APP_ENV: "test",
         ASR_PROVIDER: "breeze_asr_25",
-        LLM_PROVIDER: "gemma_4_e2b",
+        LLM_PROVIDER: "gemma_4_e4b",
         TTS_PROVIDER: "breezyvoice",
         EMOTION_PROVIDER: "http"
       })
     );
     expect(adapters.asr).toBeInstanceOf(BreezeASRAdapter);
-    expect(adapters.llm).toBeInstanceOf(GemmaE2BAdapter);
+    expect(adapters.llm).toBeInstanceOf(GemmaE4BAdapter);
     expect(adapters.tts).toBeInstanceOf(BreezyVoiceAdapter);
   });
 
-  it("keeps the legacy Gemma E4B provider alias available", () => {
+  it("keeps the legacy Gemma E2B provider alias available", () => {
     const adapters = AdapterFactory.create(
       loadConfig({
         APP_ENV: "test",
-        LLM_PROVIDER: "gemma_4_e4b"
+        LLM_PROVIDER: "gemma_4_e2b"
       })
     );
-    expect(adapters.llm).toBeInstanceOf(GemmaE4BAdapter);
+    expect(adapters.llm).toBeInstanceOf(GemmaE2BAdapter);
+  });
+
+  it("supports v0.5 Ollama and vLLM LLM provider aliases", () => {
+    const ollamaAdapters = AdapterFactory.create(
+      loadConfig({
+        APP_ENV: "test",
+        LLM_PROVIDER: "ollama"
+      })
+    );
+    const vllmAdapters = AdapterFactory.create(
+      loadConfig({
+        APP_ENV: "test",
+        LLM_PROVIDER: "vllm"
+      })
+    );
+    expect(ollamaAdapters.llm).toBeInstanceOf(HttpLLMAdapter);
+    expect(vllmAdapters.llm).toBeInstanceOf(HttpLLMAdapter);
+  });
+
+  it("maps v0.5 TTS scheduler env aliases to the active long-form config", () => {
+    const config = loadConfig({
+      APP_ENV: "test",
+      MAX_PARALLEL_TTS_WORKERS: "3",
+      CHUNK_TARGET_SECONDS: "4",
+      SILENCE_PADDING_MS: "120"
+    });
+    expect(config.TTS_MAX_PARALLEL_CHUNKS).toBe(3);
+    expect(config.TTS_TARGET_CHUNK_SECONDS).toBe(4);
+    expect(config.TTS_SENTENCE_SILENCE_MS).toBe(120);
   });
 });
 

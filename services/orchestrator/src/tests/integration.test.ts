@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { LLMInput, LLMPort, TTSPort, TTSInput } from "../ports/modelPorts.js";
+import type { AudioInput, EmotionInput, LLMInput, LLMPort, TTSPort, TTSInput, VADPort } from "../ports/modelPorts.js";
 import { loadConfig } from "../config/env.js";
 import { buildServer, createDependencies } from "../server.js";
+import { StreamingVoiceTurnUseCase } from "../usecases/StreamingVoiceTurnUseCase.js";
 
 const baseRequest = {
   session_id: "session_test",
@@ -93,6 +94,14 @@ describe("voice-turn endpoint", () => {
     expect(body.latency.total_ms).toBeGreaterThanOrEqual(0);
     expect(body.latency.audio_encode_ms).toBeGreaterThanOrEqual(0);
     expect(body.tts_cache_hit).toBe(true);
+    expect(body.latency.tts_cache_hit).toBe(true);
+    expect(body.latency.playback_ms).toBe(body.latency.playback_delay_ms);
+    expect(body.latency.llm_first_token_ms).toBeGreaterThanOrEqual(0);
+    expect(body.latency.llm_total_ms).toBeGreaterThanOrEqual(0);
+    expect(body.latency.tts_first_audio_ms).toBeGreaterThanOrEqual(0);
+    expect(body.latency.tts_total_ms).toBeGreaterThanOrEqual(0);
+    expect(body.latency.playback_start_ms).toBeGreaterThanOrEqual(0);
+    expect(body.latency.tts_parallel_chunks).toBe(1);
     await app.close();
   });
 
@@ -285,5 +294,340 @@ describe("voice-turn endpoint", () => {
     expect(body.reply).toBe("避免承諾報酬。");
     expect(body.tts_cache_hit).toBe(true);
     await app.close();
+  });
+
+  it("propagates one turn_id through VAD, ASR, Emotion, LLM, and TTS", async () => {
+    const seen: Record<string, string | undefined> = {};
+    const deps = createDependencies(loadConfig({ APP_ENV: "test", ENABLE_PLAYBACK_DELAY: "false" }));
+
+    deps.vad = {
+      async detect(input: AudioInput) {
+        seen.vad = input.turnId;
+        return { hasSpeech: true };
+      }
+    } satisfies VADPort;
+
+    deps.asr = {
+      async transcribe(input: AudioInput) {
+        seen.asr = input.turnId;
+        return { text: "我等一下要拜訪一個新客戶", language: "zh-TW", confidence: 0.9, durationMs: 1 };
+      }
+    };
+
+    deps.emotion = {
+      async classify(input: EmotionInput) {
+        seen.emotion = input.turnId;
+        return { label: "neutral", confidence: 0.5, signals: [], durationMs: 1 };
+      }
+    };
+
+    deps.llm = {
+      async generate(input: LLMInput) {
+        seen.llm = input.turnId;
+        return { reply: "先抓住目標。", durationMs: 1 };
+      }
+    };
+
+    deps.tts = {
+      async synthesize(input: TTSInput) {
+        seen.tts = input.turnId;
+        return {
+          audioUrl: "/mock-audio/turn.wav",
+          ttsCacheHit: true,
+          upstreamTtsMs: 0,
+          audioEncodeMs: 0,
+          durationMs: 1,
+          format: "wav"
+        };
+      }
+    };
+
+    const app = await buildServer(deps);
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/voice-turn",
+      payload: { ...baseRequest, session_id: "turn_id_propagation", audio_base64: "text:我等一下要拜訪一個新客戶" }
+    });
+    const body = response.json();
+    expect(body.turn_id).toMatch(/^turn_/);
+    expect(seen).toEqual({
+      vad: body.turn_id,
+      asr: body.turn_id,
+      emotion: body.turn_id,
+      llm: body.turn_id,
+      tts: body.turn_id
+    });
+    await app.close();
+  });
+
+  it("streams sentence-level LLM output into turn-scoped TTS chunks", async () => {
+    const ttsInputs: TTSInput[] = [];
+    const deps = createDependencies(loadConfig({ APP_ENV: "test", ENABLE_PLAYBACK_DELAY: "false" }));
+
+    deps.llm = {
+      async generate(_input: LLMInput) {
+        return { reply: "先抓住目標。可以穩穩聊。", durationMs: 1 };
+      },
+      async *stream(_input: LLMInput) {
+        yield "先抓";
+        yield "住目標。可以";
+        yield "穩穩聊。";
+      }
+    };
+
+    deps.tts = {
+      async synthesize(input: TTSInput) {
+        ttsInputs.push(input);
+        return {
+          audioUrl: `/mock-audio/${encodeURIComponent(input.text)}.wav`,
+          ttsCacheHit: true,
+          upstreamTtsMs: 0,
+          audioEncodeMs: 0,
+          durationMs: 1,
+          format: "wav"
+        };
+      }
+    };
+
+    const app = await buildServer(deps);
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/voice-turn-stream",
+      payload: {
+        ...baseRequest,
+        session_id: "streaming_turn",
+        audio_base64: "text:我想先整理一下"
+      }
+    });
+    expect(response.statusCode).toBe(200);
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const started = events.find((event) => event.type === "voice_turn_started");
+    const sentences = events.filter((event) => event.type === "sentence");
+    const audio = events.filter((event) => event.type === "audio_chunk");
+    const completed = events.at(-1);
+
+    expect(started.turn_id).toMatch(/^turn_/);
+    expect(sentences.map((event) => event.sentence)).toEqual(["先抓住目標。", "可以穩穩聊。"]);
+    expect(audio.map((event) => event.sentence)).toEqual(["先抓住目標。", "可以穩穩聊。"]);
+    expect(audio.map((event) => event.event)).toEqual(["audio_chunk", "audio_chunk"]);
+    expect(audio.map((event) => event.chunk_id)).toEqual([
+      `${started.turn_id}_chunk_0`,
+      `${started.turn_id}_chunk_1`
+    ]);
+    expect(audio.at(-1).is_final).toBe(true);
+    expect(ttsInputs.map((input) => input.turnId)).toEqual([started.turn_id, started.turn_id]);
+    expect(completed).toMatchObject({
+      type: "voice_turn_completed",
+      turn_id: started.turn_id,
+      transcript: "我想先整理一下",
+      reply: "先抓住目標。可以穩穩聊。"
+    });
+    await app.close();
+  });
+
+  it("streams long-form chunks in order with cache-backed latency metrics", async () => {
+    let upstreamCalls = 0;
+    const deps = createDependencies(loadConfig({
+      APP_ENV: "test",
+      ENABLE_PLAYBACK_DELAY: "false",
+      TTS_LONG_FORM_ENABLED: "true",
+      TTS_MAX_PARALLEL_CHUNKS: "2",
+      TTS_TARGET_CHUNK_SECONDS: "2",
+      REPLY_MAX_CHARS: "200"
+    }));
+
+    deps.llm = {
+      async generate(_input: LLMInput) {
+        return {
+          reply:
+            "第一句先建立信任感，讓對方知道你是在協助他整理需求。第二句釐清家庭責任，確認家庭支出和照顧壓力。第三句不要急著推產品，先把風險缺口講清楚。第四句收斂到下一步，約定之後再看合適方案。",
+          durationMs: 1
+        };
+      }
+    };
+
+    deps.tts = {
+      async synthesize(input: TTSInput) {
+        upstreamCalls += 1;
+        const delay = input.text.includes("第一句") ? 20 : 1;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return {
+          audioUrl: `/mock-audio/${encodeURIComponent(input.text)}.wav`,
+          ttsCacheHit: false,
+          upstreamTtsMs: delay,
+          audioEncodeMs: 0,
+          durationMs: delay,
+          format: "wav"
+        };
+      }
+    };
+
+    const app = await buildServer(deps);
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/v1/voice-turn-stream",
+      payload: {
+        ...baseRequest,
+        session_id: "long_form_streaming",
+        audio_base64: "text:請幫我整理長一點"
+      }
+    });
+    const firstEvents = first.body.trim().split("\n").map((line) => JSON.parse(line));
+    const firstAudio = firstEvents.filter((event) => event.type === "audio_chunk");
+    const firstCompleted = firstEvents.at(-1);
+
+    expect(firstAudio.length).toBeGreaterThan(1);
+    expect(firstAudio.map((event) => event.sequence)).toEqual(firstAudio.map((_, index) => index));
+    expect(firstAudio.at(-1).is_final).toBe(true);
+    expect(firstCompleted.latency).toMatchObject({
+      tts_chunk_count: firstAudio.length,
+      tts_parallelism: 2,
+      tts_cache_miss_count: firstAudio.length,
+      tts_cache_hit_count: 0
+    });
+    expect(firstCompleted.latency.tts_time_to_first_audio_ms).toBeGreaterThanOrEqual(0);
+    expect(firstCompleted.latency.tts_total_synthesis_ms).toBeGreaterThanOrEqual(0);
+    expect(firstCompleted.latency.tts_merge_ms).toBeGreaterThanOrEqual(0);
+    expect(firstCompleted.latency.tts_first_audio_ms).toBe(firstCompleted.latency.tts_time_to_first_audio_ms);
+    expect(firstCompleted.latency.tts_total_ms).toBe(firstCompleted.latency.tts_total_synthesis_ms);
+    expect(firstCompleted.latency.playback_start_ms).toBe(firstCompleted.latency.playback_start_delay_ms);
+    expect(firstCompleted.latency.tts_parallel_chunks).toBe(firstAudio.length);
+    expect(firstCompleted.audio_stitch).toMatchObject({
+      sample_rate_verified: true,
+      normalized: true,
+      silence_padding_ms: 160
+    });
+    expect(firstCompleted.audio_stitch.total_duration_ms).toBeGreaterThan(0);
+    expect(upstreamCalls).toBe(firstAudio.length);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/v1/voice-turn-stream",
+      payload: {
+        ...baseRequest,
+        session_id: "long_form_streaming",
+        audio_base64: "text:請幫我整理長一點"
+      }
+    });
+    const secondEvents = second.body.trim().split("\n").map((line) => JSON.parse(line));
+    const secondAudio = secondEvents.filter((event) => event.type === "audio_chunk");
+    const secondCompleted = secondEvents.at(-1);
+    expect(secondAudio.map((event) => event.tts_cache_hit)).toEqual(secondAudio.map(() => true));
+    expect(secondCompleted.latency.tts_cache_hit_count).toBe(secondAudio.length);
+    expect(upstreamCalls).toBe(firstAudio.length);
+    await app.close();
+  });
+
+  it("yields first long-form audio before all chunks finish synthesis", async () => {
+    let completedSyntheses = 0;
+    const deps = createDependencies(loadConfig({
+      APP_ENV: "test",
+      ENABLE_PLAYBACK_DELAY: "false",
+      TTS_LONG_FORM_ENABLED: "true",
+      TTS_MAX_PARALLEL_CHUNKS: "2",
+      TTS_TARGET_CHUNK_SECONDS: "2",
+      REPLY_MAX_CHARS: "200"
+    }));
+
+    deps.llm = {
+      async generate(_input: LLMInput) {
+        return {
+          reply:
+            "第一句先建立信任感，讓對方知道你是在協助他整理需求。第二句釐清家庭責任，確認家庭支出和照顧壓力。第三句不要急著推產品，先把風險缺口講清楚。第四句收斂到下一步，約定之後再看合適方案。",
+          durationMs: 1
+        };
+      }
+    };
+
+    deps.tts = {
+      async synthesize(input: TTSInput) {
+        const delay = input.text.includes("第一句") ? 5 : 80;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        completedSyntheses += 1;
+        return {
+          audioUrl: `/mock-audio/${encodeURIComponent(input.text)}.wav`,
+          ttsCacheHit: false,
+          upstreamTtsMs: delay,
+          audioEncodeMs: 0,
+          durationMs: delay,
+          format: "wav"
+        };
+      }
+    };
+
+    const events = new StreamingVoiceTurnUseCase(deps).execute({
+      ...baseRequest,
+      session_id: "first_audio_before_all",
+      audio_base64: "text:請幫我整理長一點"
+    });
+
+    let firstAudioCompletedSyntheses: number | undefined;
+    for await (const event of events) {
+      if (event.type === "audio_chunk") {
+        firstAudioCompletedSyntheses = completedSyntheses;
+        break;
+      }
+    }
+
+    expect(firstAudioCompletedSyntheses).toBeDefined();
+    expect(firstAudioCompletedSyntheses).toBeLessThan(4);
+  });
+
+  it("stops yielding long-form chunks after stream abort", async () => {
+    const deps = createDependencies(loadConfig({
+      APP_ENV: "test",
+      ENABLE_PLAYBACK_DELAY: "false",
+      TTS_LONG_FORM_ENABLED: "true",
+      TTS_MAX_PARALLEL_CHUNKS: "2",
+      TTS_TARGET_CHUNK_SECONDS: "2",
+      REPLY_MAX_CHARS: "200"
+    }));
+    const abortController = new AbortController();
+
+    deps.llm = {
+      async generate(_input: LLMInput) {
+        return {
+          reply:
+            "第一句先建立信任感，讓對方知道你是在協助他整理需求。第二句釐清家庭責任，確認家庭支出和照顧壓力。第三句不要急著推產品，先把風險缺口講清楚。第四句收斂到下一步，約定之後再看合適方案。",
+          durationMs: 1
+        };
+      }
+    };
+
+    deps.tts = {
+      async synthesize(input: TTSInput) {
+        const delay = input.text.includes("第一句") ? 5 : 80;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return {
+          audioUrl: `/mock-audio/${encodeURIComponent(input.text)}.wav`,
+          ttsCacheHit: false,
+          upstreamTtsMs: delay,
+          audioEncodeMs: 0,
+          durationMs: delay,
+          format: "wav"
+        };
+      }
+    };
+
+    const yieldedTypes: string[] = [];
+    for await (const event of new StreamingVoiceTurnUseCase(deps).execute(
+      {
+        ...baseRequest,
+        session_id: "abort_long_form",
+        audio_base64: "text:請幫我整理長一點"
+      },
+      abortController.signal
+    )) {
+      yieldedTypes.push(event.type);
+      if (event.type === "audio_chunk") {
+        abortController.abort();
+      }
+    }
+
+    expect(yieldedTypes.filter((type) => type === "audio_chunk")).toHaveLength(1);
+    expect(yieldedTypes).not.toContain("voice_turn_completed");
   });
 });
