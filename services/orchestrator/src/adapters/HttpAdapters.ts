@@ -84,7 +84,14 @@ export class HttpTTSAdapter implements TTSPort {
     const payload = await postJson(`${this.serviceUrl}/tts`, input, this.timeoutMs, () => {
       return new TTSTimeoutError("TTS service timed out");
     });
-    return ttsResultSchema.parse(payload);
+    const result = ttsResultSchema.parse(payload);
+    if (result.audioUrl?.startsWith("/")) {
+      return {
+        ...result,
+        audioUrl: `${this.serviceUrl.replace(/\/$/, "")}${result.audioUrl}`
+      };
+    }
+    return result;
   }
 }
 

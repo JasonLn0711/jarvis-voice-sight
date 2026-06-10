@@ -11,6 +11,8 @@ import pino, { type Logger } from "pino";
 import { AdapterFactory, type AdapterSet } from "./factories/AdapterFactory.js";
 import { loadConfig, type AppConfig } from "./config/env.js";
 import { EventBus } from "./events/EventBus.js";
+import { ResponseCanonicalizer } from "./policy/ResponseCanonicalizer.js";
+import { ResponseRepairEngine } from "./policy/ResponseRepairEngine.js";
 import { ResponsePolicyEngine } from "./policy/ResponsePolicyEngine.js";
 import { InMemoryConversationRepository } from "./repositories/ConversationRepository.js";
 import { ConciseJarvisStrategy, EmotionAwareJarvisStrategy } from "./strategies/ResponseStrategy.js";
@@ -36,7 +38,9 @@ export function createDependencies(
     tts: adapters.tts,
     emotion: adapters.emotion,
     conversationRepository: new InMemoryConversationRepository(config.MAX_RECENT_MESSAGES),
+    responseCanonicalizer: new ResponseCanonicalizer(),
     responsePolicy: new ResponsePolicyEngine(config.REPLY_MAX_CHARS),
+    responseRepair: new ResponseRepairEngine(),
     conciseStrategy: new ConciseJarvisStrategy(),
     emotionAwareStrategy: new EmotionAwareJarvisStrategy(),
     breakers: adapters.breakers,
@@ -46,6 +50,7 @@ export function createDependencies(
 
 export async function buildServer(deps: ServerDependencies = createDependencies()) {
   const app = Fastify({
+    bodyLimit: deps.config.BODY_LIMIT_BYTES,
     logger: deps.config.APP_ENV === "test" ? false : { level: "info" }
   });
 
@@ -115,7 +120,7 @@ export async function buildServer(deps: ServerDependencies = createDependencies(
         name: "Jarvis",
         language: "zh-TW",
         tone: "calm_concise_intelligent_supportive",
-        replyMinChars: 10,
+        replyMinChars: 6,
         replyMaxChars: deps.config.REPLY_MAX_CHARS
       },
       ...(emotion ? { emotion } : {})
@@ -127,7 +132,7 @@ export async function buildServer(deps: ServerDependencies = createDependencies(
         name: "Jarvis",
         language: "zh-TW",
         tone: "calm_concise_intelligent_supportive",
-        replyMinChars: 10,
+        replyMinChars: 6,
         replyMaxChars: deps.config.REPLY_MAX_CHARS
       },
       prompt,

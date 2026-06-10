@@ -12,6 +12,7 @@ import {
   BreezeASRAdapter,
   BreezyVoiceAdapter,
   EmotionClassifierAdapter,
+  GemmaE2BAdapter,
   GemmaE4BAdapter
 } from "../adapters/RealModelAdapters.js";
 import type { ASRPort, EmotionPort, LLMPort, TTSPort, VADPort } from "../ports/modelPorts.js";
@@ -60,6 +61,9 @@ export class AdapterFactory {
   private static createLLM(config: AppConfig): LLMPort {
     if (config.LLM_PROVIDER === "mock") {
       return new MockLLMAdapter();
+    }
+    if (config.LLM_PROVIDER === "gemma_4_e2b") {
+      return new GemmaE2BAdapter(config.LLM_SERVICE_URL, config.LLM_TIMEOUT_MS);
     }
     if (config.LLM_PROVIDER === "gemma_4_e4b") {
       return new GemmaE4BAdapter(config.LLM_SERVICE_URL, config.LLM_TIMEOUT_MS);

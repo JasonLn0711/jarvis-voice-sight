@@ -1,13 +1,15 @@
 import { HttpASRAdapter, HttpEmotionAdapter, HttpLLMAdapter, HttpTTSAdapter } from "./HttpAdapters.js";
 
-// TODO(real-model): replace the HTTP contract target with the actual Breeze-ASR-25 runtime endpoint.
+// Breeze-ASR-25 is served by services/asr, where faster-whisper owns the runtime.
 export class BreezeASRAdapter extends HttpASRAdapter {}
 
-// TODO(real-model): replace the HTTP contract target with a Gemma 4 E4B local or near-edge runtime.
+// Gemma 4 E2B/E4B is served by services/llm, with Ollama as the fast default runtime.
+export class GemmaE2BAdapter extends HttpLLMAdapter {}
+
 export class GemmaE4BAdapter extends HttpLLMAdapter {}
 
-// TODO(real-model): replace the HTTP contract target with the actual BreezyVoice inference service.
+// BreezyVoice is served by services/tts, which wraps a warm OpenAI-compatible TTS server.
 export class BreezyVoiceAdapter extends HttpTTSAdapter {}
 
-// TODO(real-model): replace this with a transcript/prosody classifier when v0.2 runs with real signals.
+// v0.2 emotion currently remains a bounded classifier service behind the same HTTP port.
 export class EmotionClassifierAdapter extends HttpEmotionAdapter {}
