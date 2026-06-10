@@ -449,7 +449,7 @@ Jarvis Voice Sight
 v0.2
 Insurance voice coach
 Breeze-ASR-25
-Gemma 4 E2B int4
+Gemma 4 E4B int4
 BreezyVoice
 RTX 4090 Laptop GPU
 ```

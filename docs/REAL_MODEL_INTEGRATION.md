@@ -20,9 +20,9 @@ to real mode is controlled by environment variables.
   Taiwanese Mandarin, Traditional Chinese context, Mandarin-English
   code-switching, and timestamp alignment. Its repository documents Hugging
   Face Transformers `pipeline` usage and a patched Whisper CLI path.
-- Gemma 4 E2B int4 is the current Jarvis fast LLM target. The local Ollama tag
-  is `gemma4:e2b`, and the accepted demo path uses the `Q4_K_M` quantized build
-  on the RTX GPU.
+- Gemma 4 runs behind a configurable LLM wrapper. The v0.5 default Ollama tag is
+  `gemma4:e2b`; `LLM_RUNTIME=vllm` switches the wrapper to an
+  OpenAI-compatible vLLM endpoint while ASR and TTS remain independent services.
 - BreezyVoice is a Taiwanese Mandarin TTS / voice-cloning system derived from
   CosyVoice. Its repository documents `single_inference.py`, Docker, and an
   OpenAI-compatible API path.
@@ -93,7 +93,7 @@ Breeze-ASR-25 CTranslate2 directory. This is the preferred path for low-latency
 local ASR because `faster-whisper` uses CTranslate2 and supports quantized
 inference.
 
-## LLM: Gemma 4 E2B int4
+## LLM: Configurable Gemma Runtime
 
 Service:
 
@@ -101,12 +101,13 @@ Service:
 services/llm
 ```
 
-The LLM service supports three real Gemma paths.
+The LLM service supports Ollama, vLLM, OpenAI-compatible, Transformers, and mock
+paths behind the same `/chat` and `/chat/stream` wrapper contract.
 
 ### Selected Fast Local Demo Path: Ollama
 
 ```env
-LLM_PROVIDER=gemma_4_e2b
+LLM_PROVIDER=ollama
 LLM_SERVICE_URL=http://localhost:8002
 LLM_RUNTIME=ollama
 OLLAMA_BASE_URL=http://localhost:11434
@@ -122,10 +123,10 @@ npm run real:pull-gemma
 ```
 
 This is the recommended first real-model path because it avoids a custom
-Transformers serving stack, supports local quantized Gemma 4 E2B int4 variants, and
-keeps the Jarvis LLM service as a thin HTTP bridge.
+Transformers serving stack, supports local quantized Gemma variants, and keeps
+the Jarvis LLM service as a thin HTTP bridge.
 
-`OLLAMA_THINK=false` is intentional. Jarvis v0.1/v0.2 is a latency-first voice
+`OLLAMA_THINK=false` is intentional. Jarvis v0.5 is a latency-first voice
 loop, so the wrapper disables Gemma 4 thinking mode and asks for short spoken
 responses.
 
@@ -145,6 +146,30 @@ OLLAMA_THINK=false \
 ../../.venv-llm/bin/python -m uvicorn src.server:app --host 0.0.0.0 --port 8002
 ```
 
+### vLLM Runtime
+
+Use this when a vLLM OpenAI-compatible server is the selected LLM runtime.
+Ollama / vLLM only replace the LLM runtime; ASR and TTS remain independent
+services.
+
+```env
+LLM_PROVIDER=vllm
+LLM_SERVICE_URL=http://localhost:8002
+LLM_RUNTIME=vllm
+VLLM_BASE_URL=http://localhost:8000/v1
+VLLM_MODEL=gemma-4-e2b
+```
+
+Run the Jarvis LLM wrapper against vLLM:
+
+```bash
+cd services/llm
+LLM_RUNTIME=vllm \
+VLLM_BASE_URL=http://localhost:8000/v1 \
+VLLM_MODEL=gemma-4-e2b \
+../../.venv-llm/bin/python -m uvicorn src.server:app --host 0.0.0.0 --port 8002
+```
+
 ### OpenAI-Compatible Runtime
 
 Use this for LM Studio, llama.cpp server, vLLM, or another local server exposing
@@ -153,7 +178,7 @@ Use this for LM Studio, llama.cpp server, vLLM, or another local server exposing
 ```env
 LLM_RUNTIME=openai_compatible
 OPENAI_COMPATIBLE_BASE_URL=http://localhost:1234/v1
-OPENAI_COMPATIBLE_MODEL=google/gemma-4-E2B-it
+OPENAI_COMPATIBLE_MODEL=google/gemma-4-E4B-it
 OPENAI_COMPATIBLE_API_KEY=
 ```
 
@@ -164,7 +189,7 @@ loading.
 
 ```env
 LLM_RUNTIME=transformers
-GEMMA_MODEL_ID=google/gemma-4-E2B-it
+GEMMA_MODEL_ID=google/gemma-4-E4B-it
 GEMMA_TRANSFORMERS_DEVICE=cuda
 ```
 
@@ -322,7 +347,7 @@ The orchestrator must call the model services through real providers:
 
 ```env
 ASR_PROVIDER=breeze_asr_25
-LLM_PROVIDER=gemma_4_e2b
+LLM_PROVIDER=gemma_4_e4b
 TTS_PROVIDER=breezyvoice
 ENABLE_EMOTION=true
 EMOTION_PROVIDER=mock
@@ -342,16 +367,17 @@ and rerun latency benchmarks.
 
 ## Next Optimization: BreezyVoice Latency
 
-The real stack is now in demo territory: ASR, Gemma 4 E2B int4, and BreezyVoice
-all run through RTX GPU-backed services, and BreezyVoice follows the LLM output
-after matched zero-shot prompt transcription is provided.
+The real stack is now in demo territory: Breeze-ASR, the configurable Gemma LLM
+wrapper, and BreezyVoice all run through RTX GPU-backed services, and
+BreezyVoice follows the LLM output after matched zero-shot prompt transcription
+is provided.
 
 Current measured bottleneck:
 
 ```text
 real voice-turn total: 7.45s
 TTS stage: 6.8s
-target v0.2 real turn: 2.5s to 4s
+target v0.5 average real turn: under 4s
 ```
 
 Do not change models before optimizing the TTS path. The next engineering pass
@@ -370,7 +396,8 @@ should:
 ```
 
 4. Add `audio_encode_ms` and structured stage logs.
-5. Defer sentence-level streaming until cache and warmup results are measured.
+5. Use sentence-level streaming and bounded parallel long-form synthesis for
+   longer replies.
 
 Acceptance for this optimization pass:
 
@@ -393,7 +420,7 @@ This checks:
 
 1. Orchestrator real-provider wiring through `npm run real:health`.
 2. Breeze-ASR-25 CTranslate2 model directory.
-3. Native Ollama binary and `gemma4:e2b` model.
+3. Native Ollama binary and configured Ollama model.
 4. Native Ollama RTX CUDA backend evidence.
 5. Ollama server reachability.
 6. BreezyVoice OpenAI-compatible upstream reachability.
@@ -419,7 +446,7 @@ Expected health provider values:
 {
   "providers": {
     "asr": "breeze_asr_25",
-    "llm": "gemma_4_e2b",
+    "llm": "gemma_4_e4b",
     "tts": "breezyvoice"
   }
 }

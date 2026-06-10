@@ -11,6 +11,23 @@ Jarvis Voice Sight MVP from an empty repository through v0.2. The prompt is
 designed to drive a mock-first implementation where the full engineering
 pipeline runs before real model integrations are attached.
 
+This file is intentionally retained as the v0.1 to v0.2 baseline prompt.
+
+Canonical next-phase implementation prompt:
+
+```text
+docs/CODEX_GOAL_PROMPT_v0.2.1_to_v0.3.md
+```
+
+Related next-phase feedback roadmap:
+
+```text
+docs/VOISS_FEEDBACK_ROADMAP_v0.2.1_to_v0.3.md
+```
+
+That file records VOISS AI feedback and the next implementation prompt for
+v0.2.1 demo stability and v0.3 realtime interaction.
+
 ---
 
 下面這段可以直接丟給 Codex，目標是從空 repo 做到 v0.2 可跑。
@@ -25,7 +42,7 @@ Product: Jarvis Voice Sight
 Purpose: real-time voice companion loop
 Core pipeline:
 
-User speech → VAD → Breeze-ASR-25 → Gemma 4 E2B int4 → response policy → BreezyVoice TTS → audio playback
+User speech → VAD → Breeze-ASR-25 → Gemma 4 E4B int4 → response policy → BreezyVoice TTS → audio playback
 
 v0.1 must support a working voice loop.
 v0.2 must add emotion-aware response policy.
@@ -95,7 +112,7 @@ Model services:
 * Python
 * FastAPI
 * mock-first implementation
-* later replaceable with real Breeze-ASR-25, Gemma 4 E2B int4, BreezyVoice
+* later replaceable with real Breeze-ASR-25, Gemma 4 E4B int4, BreezyVoice
 
 Shared package:
 
@@ -400,7 +417,7 @@ Design patterns to implement:
 2. Adapter Pattern
 
    * BreezeASRAdapter
-   * GemmaE2BAdapter
+   * GemmaE4BAdapter
    * BreezyVoiceAdapter
    * EmotionClassifierAdapter
    * MockASRAdapter
@@ -692,7 +709,7 @@ Final output should include:
 3. current limitations
 4. files changed
 5. test results
-6. next steps for real Breeze-ASR-25, Gemma 4 E2B int4, and BreezyVoice integration
+6. next steps for real Breeze-ASR-25, Gemma 4 E4B int4, and BreezyVoice integration
 
 這份 prompt 的重點是：先 mock 全流程跑通，再換真模型。你明天 demo 時，就算模型還沒接完，也能展示「工程架構是對的」。
 
@@ -713,7 +730,7 @@ Real-model target:
 ```text
 User speech
   -> faster-whisper Breeze-ASR-25
-  -> Gemma 4 E2B int4 through Ollama
+  -> Gemma 4 E4B int4 through Ollama
   -> response policy
   -> BreezyVoice through OpenAI-compatible TTS API
   -> audio playback
@@ -778,7 +795,7 @@ ct2-transformers-converter \
 
 ### LLM
 
-Use Ollama for the first fast Gemma 4 E2B int4 integration.
+Use Ollama for the first fast Gemma 4 E4B int4 integration.
 
 Reason:
 
@@ -791,9 +808,9 @@ Implementation requirements:
 
 1. Add `LLM_RUNTIME=ollama`.
 2. Add `OLLAMA_BASE_URL=http://localhost:11434`.
-3. Add `OLLAMA_MODEL=gemma4:e2b`.
+3. Add `OLLAMA_MODEL=gemma4:e4b`.
 4. Add `OLLAMA_THINK=false` for latency-first voice replies.
-5. Keep `LLM_PROVIDER=gemma_4_e2b` in the orchestrator.
+5. Keep `LLM_PROVIDER=gemma_4_e4b` in the orchestrator.
 6. The LLM service should call Ollama `/api/chat`.
 7. Use the existing Jarvis prompt and send it as a system message.
 8. Keep `max_tokens` / `num_predict` small, around `48`.
@@ -861,11 +878,11 @@ BREEZE_ASR_CT2_MODEL_PATH=models/breeze-asr-25-ct2
 BREEZE_ASR_DEVICE=cuda
 BREEZE_ASR_COMPUTE_TYPE=int8_float16
 
-LLM_PROVIDER=gemma_4_e2b
+LLM_PROVIDER=gemma_4_e4b
 LLM_RUNTIME=ollama
 LLM_SERVICE_URL=http://localhost:8002
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=gemma4:e2b
+OLLAMA_MODEL=gemma4:e4b
 OLLAMA_THINK=false
 
 TTS_PROVIDER=breezyvoice
@@ -891,10 +908,10 @@ Expose the real-model preflight through `npm run real:preflight`.
 The real-model integration is accepted only if:
 
 1. Mock mode still passes.
-2. `/api/v1/health` reports `breeze_asr_25`, `gemma_4_e2b`, and `breezyvoice`
+2. `/api/v1/health` reports `breeze_asr_25`, `gemma_4_e4b`, and `breezyvoice`
    providers when real env is enabled.
 3. ASR service uses `faster_whisper.WhisperModel`, not Transformers pipeline.
-4. LLM service can call Ollama `gemma4:e2b`.
+4. LLM service can call Ollama `gemma4:e4b`.
 5. TTS service can call an OpenAI-compatible BreezyVoice endpoint and serve the
    generated audio URL.
 6. `/api/v1/voice-turn` contract remains unchanged.
@@ -1092,3 +1109,22 @@ Acceptance:
 7. Real AI model runtimes still use RTX GPU only.
 8. BreezyVoice output still follows the LLM/policy text after caching and
    warmup.
+
+## Next-Phase Prompt
+
+The v0.1 to v0.2 prompt remains the baseline for the initial voice loop and
+real-model integration. The current canonical next-phase prompt is:
+
+```text
+docs/CODEX_GOAL_PROMPT_v0.2.1_to_v0.3.md
+```
+
+Use the next-phase prompt for:
+
+1. v0.2.1 demo stability.
+2. turn-level cancellation.
+3. stale playback protection.
+4. realtime VAD state management.
+5. barge-in.
+6. always-listening preview.
+7. sentence-level streaming.

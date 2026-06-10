@@ -29,7 +29,7 @@ The real-model services were running with:
 
 ```text
 ASR_PROVIDER=breeze_asr_25
-LLM_PROVIDER=gemma_4_e2b
+LLM_PROVIDER=gemma_4_e4b
 TTS_PROVIDER=breezyvoice
 ENABLE_EMOTION=true
 EMOTION_PROVIDER=mock
@@ -51,7 +51,7 @@ Health check:
   },
   "providers": {
     "asr": "breeze_asr_25",
-    "llm": "gemma_4_e2b",
+    "llm": "gemma_4_e4b",
     "tts": "breezyvoice",
     "emotion": "mock"
   }

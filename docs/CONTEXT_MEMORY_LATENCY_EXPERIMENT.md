@@ -51,7 +51,7 @@ This keeps the input transcript deterministic while still using the real model
 path for:
 
 ```text
-Gemma 4 E2B int4 via Ollama
+Gemma 4 E4B int4 via Ollama
 BreezyVoice TTS wrapper
 Mock emotion service
 Orchestrator response policy

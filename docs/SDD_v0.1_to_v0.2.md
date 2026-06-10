@@ -10,12 +10,12 @@ Status: Canonical SDD record
 
 Recorded date: 2026-06-10
 
-技術依據：Breeze-ASR-25 是基於 Whisper-large-v2 微調，強化繁中與中英混用辨識；BreezyVoice 是針對台灣華語調整的 TTS / voice cloning 系統；Gemma 4 E2B int4 是 Google Gemma 4 系列的小型 multimodal / edge-oriented 模型之一，適合低延遲本地或近端推論。([GitHub][1])
+技術依據：Breeze-ASR-25 是基於 Whisper-large-v2 微調，強化繁中與中英混用辨識；BreezyVoice 是針對台灣華語調整的 TTS / voice cloning 系統；Gemma 4 E4B int4 是 Google Gemma 4 系列的小型 multimodal / edge-oriented 模型之一，適合低延遲本地或近端推論。([GitHub][1])
 
 ## 1. Product Definition
 
 `jarvis-voice-sight` is a real-time voice interaction MVP.
-The system allows a user to speak through a microphone, converts speech to text using Breeze-ASR-25, generates a short Jarvis-style response using Gemma 4 E2B int4, and speaks the response back using BreezyVoice.
+The system allows a user to speak through a microphone, converts speech to text using Breeze-ASR-25, generates a short Jarvis-style response using Gemma 4 E4B int4, and speaks the response back using BreezyVoice.
 
 The first goal is not to build a full AI agent.
 The first goal is to prove a stable real-time voice loop:
@@ -38,7 +38,7 @@ Included:
 1. Push-to-talk voice input
 2. Voice activity detection
 3. Breeze-ASR-25 transcription
-4. Gemma 4 E2B int4 short reply generation
+4. Gemma 4 E4B int4 short reply generation
 5. BreezyVoice TTS synthesis
 6. Audio playback
 7. Recent conversation context
@@ -354,7 +354,7 @@ Fallback reply:
 Model:
 
 ```text
-Gemma 4 E2B int4
+Gemma 4 E4B int4
 ```
 
 Responsibilities:
@@ -942,7 +942,7 @@ Adapters:
 
 ```text
 BreezeASRAdapter
-GemmaE2BAdapter
+GemmaE4BAdapter
 BreezyVoiceAdapter
 EmotionClassifierAdapter
 ```
@@ -996,7 +996,7 @@ Example config:
 
 ```env
 ASR_PROVIDER=breeze_asr_25
-LLM_PROVIDER=gemma_4_e2b
+LLM_PROVIDER=gemma_4_e4b
 TTS_PROVIDER=breezyvoice
 ```
 
@@ -1230,7 +1230,7 @@ PORT=3000
 ASR_PROVIDER=breeze_asr_25
 ASR_SERVICE_URL=http://localhost:8001
 
-LLM_PROVIDER=gemma_4_e2b
+LLM_PROVIDER=gemma_4_e4b
 LLM_SERVICE_URL=http://localhost:8002
 
 TTS_PROVIDER=breezyvoice
@@ -1448,7 +1448,7 @@ Voice + Image → Multimodal Context → LLM → TTS
 ## Day 2
 
 1. Connect Breeze-ASR-25
-2. Connect Gemma 4 E2B int4
+2. Connect Gemma 4 E4B int4
 3. Connect BreezyVoice
 4. Add response policy
 

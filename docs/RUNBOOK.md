@@ -80,10 +80,10 @@ ASR_SERVICE_URL=http://localhost:8001
 ASR_RUNTIME=breeze_asr_25
 BREEZE_ASR_CT2_MODEL_PATH=models/breeze-asr-25-ct2
 
-LLM_PROVIDER=gemma_4_e2b
+LLM_PROVIDER=gemma_4_e4b
 LLM_SERVICE_URL=http://localhost:8002
 LLM_RUNTIME=ollama
-OLLAMA_MODEL=gemma4:e2b
+OLLAMA_MODEL=gemma4:e4b
 
 TTS_PROVIDER=breezyvoice
 TTS_SERVICE_URL=http://localhost:8003
@@ -94,7 +94,7 @@ OPENAI_TTS_BASE_URL=http://localhost:9003/v1
 Selected fast path:
 
 1. Breeze-ASR-25 runs through `faster-whisper` after conversion to CTranslate2.
-2. Gemma 4 E2B int4 runs through Ollama as `gemma4:e2b` with RTX GPU acceleration.
+2. Gemma 4 E4B int4 runs through Ollama as `gemma4:e4b` with RTX GPU acceleration.
 3. BreezyVoice runs as a warm OpenAI-compatible TTS service with RTX GPU
    acceleration.
 

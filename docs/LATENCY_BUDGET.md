@@ -71,7 +71,7 @@ P50 audio encode latency
 P95 audio encode latency
 ```
 
-The mock benchmark validates orchestration overhead, fallback plumbing, and stage-level timing. Real model latency must be re-measured after Breeze-ASR-25, Gemma 4 E2B int4, and BreezyVoice are attached.
+The mock benchmark validates orchestration overhead, fallback plumbing, and stage-level timing. Real model latency must be re-measured after Breeze-ASR-25, Gemma 4 E4B int4, and BreezyVoice are attached.
 
 See [Latency Optimization Report](LATENCY_OPTIMIZATION_REPORT.md) for the
 2026-06-10 real-model pass that reduced the observed real turn from `7.45s` to

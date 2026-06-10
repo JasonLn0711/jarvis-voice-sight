@@ -2,7 +2,7 @@
 
 Status: Canonical engineering record  
 Date: 2026-06-10  
-Scope: Real-model v0.2 latency pass for Breeze-ASR-25, Gemma 4 E2B int4, and BreezyVoice
+Scope: Real-model v0.2 latency pass for Breeze-ASR-25, Gemma 4 E4B int4, and BreezyVoice
 
 ## Executive Summary
 
@@ -16,7 +16,7 @@ uncached short reply path: ~1.9s to 2.4s full voice-turn
 
 The main improvement came from treating BreezyVoice as the dominant latency
 source and optimizing the TTS path before changing models. The current system
-keeps all AI model execution on RTX GPU, uses Gemma 4 E2B int4 for lower LLM
+keeps all AI model execution on RTX GPU, uses Gemma 4 E4B int4 for lower LLM
 latency, and records stage-level latency in every `/api/v1/voice-turn`
 response and orchestrator log.
 
@@ -265,7 +265,7 @@ Result:
   },
   "providers": {
     "asr": "breeze_asr_25",
-    "llm": "gemma_4_e2b",
+    "llm": "gemma_4_e4b",
     "tts": "breezyvoice",
     "emotion": "mock"
   }
@@ -286,7 +286,7 @@ Result:
 OK  NVIDIA RTX GPU visible to host
 OK  ASR service PID 673269 is using the RTX GPU
 OK  Native Ollama detected RTX CUDA backend
-OK  Native Ollama model found: gemma4:e2b
+OK  Native Ollama model found: gemma4:e4b
 OK  Ollama llama-server is using the RTX GPU
 OK  BreezyVoice service PID 735705 is using the RTX GPU
 OK  TTS warmup cache exists
