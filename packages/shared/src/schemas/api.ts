@@ -28,6 +28,9 @@ export const latencyReportSchema = z.object({
   llm_ms: z.number().nonnegative(),
   policy_ms: z.number().nonnegative(),
   tts_ms: z.number().nonnegative(),
+  audio_encode_ms: z.number().nonnegative(),
+  playback_delay_ms: z.number().nonnegative(),
+  perceived_total_ms: z.number().nonnegative(),
   total_ms: z.number().nonnegative()
 });
 
@@ -38,6 +41,7 @@ export const voiceTurnResponseSchema = z.object({
   reply: z.string(),
   emotion: emotionResultSchema.optional(),
   audio_url: z.string().optional(),
+  tts_cache_hit: z.boolean().optional(),
   latency: latencyReportSchema,
   status: z.enum(["ok", "partial", "error"])
 });
@@ -86,6 +90,10 @@ export const ttsRequestSchema = z.object({
 export const ttsResultSchema = z.object({
   audioUrl: z.string().optional(),
   audioBase64: z.string().optional(),
+  ttsCacheHit: z.boolean().optional(),
+  upstreamTtsMs: z.number().nonnegative().optional(),
+  audioEncodeMs: z.number().nonnegative().optional(),
+  normalizedText: z.string().optional(),
   durationMs: z.number().nonnegative(),
   format: z.enum(["wav", "mp3"])
 });

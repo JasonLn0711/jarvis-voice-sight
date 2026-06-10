@@ -19,6 +19,8 @@ import type { Logger } from "pino";
 import type { AppConfig } from "../config/env.js";
 import type { CircuitBreaker } from "../domain/CircuitBreaker.js";
 import type { EventBus } from "../events/EventBus.js";
+import type { ResponseCanonicalizer } from "../policy/ResponseCanonicalizer.js";
+import type { ResponseRepairEngine } from "../policy/ResponseRepairEngine.js";
 import type { ResponsePolicyEngine } from "../policy/ResponsePolicyEngine.js";
 import type {
   ASRPort,
@@ -41,7 +43,9 @@ export type VoiceTurnDependencies = {
   tts: TTSPort;
   emotion: EmotionPort;
   conversationRepository: ConversationRepository;
+  responseCanonicalizer: ResponseCanonicalizer;
   responsePolicy: ResponsePolicyEngine;
+  responseRepair: ResponseRepairEngine;
   conciseStrategy: ResponseStrategy;
   emotionAwareStrategy: ResponseStrategy;
   breakers: {
@@ -72,14 +76,6 @@ interface VoiceTurnStep {
   run(context: PipelineContext): Promise<void>;
 }
 
-const persona: PersonaConfig = {
-  name: "Jarvis",
-  language: "zh-TW",
-  tone: "calm_concise_intelligent_supportive",
-  replyMinChars: 10,
-  replyMaxChars: 20
-};
-
 function createLatency(): LatencyReport {
   return {
     vad_ms: 0,
@@ -88,8 +84,19 @@ function createLatency(): LatencyReport {
     llm_ms: 0,
     policy_ms: 0,
     tts_ms: 0,
+    audio_encode_ms: 0,
+    playback_delay_ms: 0,
+    perceived_total_ms: 0,
     total_ms: 0
   };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 function turnId(): string {
@@ -234,6 +241,13 @@ export class LLMStep extends BaseStep {
         this.deps.config.ENABLE_EMOTION && context.emotion
           ? this.deps.emotionAwareStrategy
           : this.deps.conciseStrategy;
+      const persona: PersonaConfig = {
+        name: "Jarvis",
+        language: "zh-TW",
+        tone: "calm_concise_intelligent_supportive",
+        replyMinChars: 6,
+        replyMaxChars: this.deps.config.REPLY_MAX_CHARS
+      };
       const strategyInput = {
         userText: context.transcript,
         recentMessages: context.recentMessages,
@@ -266,6 +280,34 @@ export class LLMStep extends BaseStep {
   }
 }
 
+export class CanonicalizeStep extends BaseStep {
+  readonly name = "CanonicalizeStep";
+
+  async run(context: PipelineContext): Promise<void> {
+    if (!context.reply) {
+      return;
+    }
+    const result = this.deps.responseCanonicalizer.canonicalize(context.reply, {
+      userText: context.transcript,
+      recentMessages: context.recentMessages,
+      ...(context.emotion ? { emotion: context.emotion } : {})
+    });
+    if (result.changed) {
+      this.deps.logger.info(
+        {
+          sessionId: context.request.session_id,
+          turnId: context.turnId,
+          original_reply: context.reply,
+          canonical_reply: result.reply,
+          reason: result.reason
+        },
+        "response canonicalized"
+      );
+      context.reply = result.reply;
+    }
+  }
+}
+
 export class PolicyStep extends BaseStep {
   readonly name = "PolicyStep";
 
@@ -273,12 +315,34 @@ export class PolicyStep extends BaseStep {
     const start = nowMs();
     const policyContext = {
       sessionId: context.request.session_id,
+      userText: context.transcript,
+      recentMessages: context.recentMessages,
       ...(context.emotion ? { emotion: context.emotion } : {})
     };
-    const result = this.deps.responsePolicy.validate(context.reply, policyContext);
+    let result = this.deps.responsePolicy.validate(context.reply, policyContext);
+    if (!result.accepted) {
+      const repair = this.deps.responseRepair.repair({
+        originalReply: context.reply,
+        reason: result.reason ?? "unknown",
+        context: {
+          sessionId: context.request.session_id,
+          userText: context.transcript,
+          recentMessages: context.recentMessages,
+          ...(context.emotion ? { emotion: context.emotion } : {})
+        }
+      });
+      result = this.deps.responsePolicy.validate(repair.reply, policyContext);
+      if (!result.accepted) {
+        result = {
+          accepted: false,
+          finalReply: FALLBACK_REPLIES.policyRejected,
+          ...(result.reason ? { reason: result.reason } : {})
+        };
+      }
+    }
     context.latency.policy_ms = elapsedMs(start);
     context.reply = result.finalReply;
-    if (!result.accepted) {
+    if (!result.accepted && result.finalReply === FALLBACK_REPLIES.policyRejected) {
       context.status = "partial";
     }
   }
@@ -306,9 +370,21 @@ export class TTSStep extends BaseStep {
       const result = await measure(() =>
         this.deps.tts.synthesize(ttsInput)
       );
-      context.latency.tts_ms = Math.max(result.durationMs, result.value.durationMs);
+      context.latency.tts_ms = result.value.upstreamTtsMs ?? Math.max(result.durationMs, result.value.durationMs);
+      context.latency.audio_encode_ms = result.value.audioEncodeMs ?? 0;
       context.ttsResult = result.value;
       breaker.recordSuccess();
+      this.deps.logger.info(
+        {
+          sessionId: context.request.session_id,
+          turnId: context.turnId,
+          tts_cache_hit: result.value.ttsCacheHit ?? false,
+          upstream_tts_ms: result.value.upstreamTtsMs ?? 0,
+          audio_encode_ms: result.value.audioEncodeMs ?? 0,
+          total_tts_ms: result.value.durationMs
+        },
+        "tts stage completed"
+      );
       this.deps.eventBus.emit("tts_completed", {
         sessionId: context.request.session_id,
         turnId: context.turnId,
@@ -344,6 +420,37 @@ export class PersistStep extends BaseStep {
   }
 }
 
+export class PlaybackDelayStep extends BaseStep {
+  readonly name = "PlaybackDelayStep";
+
+  async run(context: PipelineContext): Promise<void> {
+    if (!this.deps.config.ENABLE_PLAYBACK_DELAY || !context.ttsResult?.audioUrl || context.status === "error") {
+      return;
+    }
+    const minMs = this.deps.config.PLAYBACK_DELAY_MIN_MS;
+    const maxMs = Math.max(minMs, this.deps.config.PLAYBACK_DELAY_MAX_MS);
+    const targetMs = randomInt(minMs, maxMs);
+    const currentMs = this.currentPipelineLatency(context);
+    const delayMs = Math.max(0, targetMs - currentMs);
+    context.latency.playback_delay_ms = delayMs;
+    if (delayMs > 0) {
+      await sleep(delayMs);
+    }
+  }
+
+  private currentPipelineLatency(context: PipelineContext): number {
+    return (
+      context.latency.vad_ms +
+      context.latency.asr_ms +
+      context.latency.emotion_ms +
+      context.latency.llm_ms +
+      context.latency.policy_ms +
+      context.latency.tts_ms +
+      context.latency.audio_encode_ms
+    );
+  }
+}
+
 export class VoiceTurnUseCase {
   private readonly steps: VoiceTurnStep[];
 
@@ -355,9 +462,11 @@ export class VoiceTurnUseCase {
       new ContextStep(deps),
       new EmotionStep(deps),
       new LLMStep(deps),
+      new CanonicalizeStep(deps),
       new PolicyStep(deps),
       new TTSStep(deps),
-      new PersistStep(deps)
+      new PersistStep(deps),
+      new PlaybackDelayStep(deps)
     ];
   }
 
@@ -387,7 +496,18 @@ export class VoiceTurnUseCase {
         }
       }
       context.latency.total_ms = this.totalLatency(context);
+      context.latency.perceived_total_ms = context.latency.total_ms + context.latency.playback_delay_ms;
       const response = this.toResponse(context);
+      this.deps.logger.info(
+        {
+          sessionId: context.request.session_id,
+          turnId: context.turnId,
+          latency: response.latency,
+          tts_cache_hit: response.tts_cache_hit ?? false,
+          status: response.status
+        },
+        "voice turn latency"
+      );
       this.deps.eventBus.emit("voice_turn_completed", {
         sessionId: request.session_id,
         turnId: context.turnId,
@@ -400,6 +520,7 @@ export class VoiceTurnUseCase {
       context.status = "error";
       context.reply = context.reply || FALLBACK_REPLIES.policyRejected;
       context.latency.total_ms = this.totalLatency(context);
+      context.latency.perceived_total_ms = context.latency.total_ms + context.latency.playback_delay_ms;
       this.deps.eventBus.emit("voice_turn_failed", {
         sessionId: request.session_id,
         turnId: context.turnId,
@@ -417,6 +538,7 @@ export class VoiceTurnUseCase {
       reply: context.reply,
       ...(context.emotion ? { emotion: context.emotion } : {}),
       ...(context.ttsResult?.audioUrl ? { audio_url: context.ttsResult.audioUrl } : {}),
+      ...(context.ttsResult?.ttsCacheHit !== undefined ? { tts_cache_hit: context.ttsResult.ttsCacheHit } : {}),
       latency: context.latency,
       status: context.status
     };
@@ -429,7 +551,8 @@ export class VoiceTurnUseCase {
       context.latency.emotion_ms +
       context.latency.llm_ms +
       context.latency.policy_ms +
-      context.latency.tts_ms;
-    return Math.max(elapsedMs(context.startMs), stageTotal);
+      context.latency.tts_ms +
+      context.latency.audio_encode_ms;
+    return Math.max(elapsedMs(context.startMs) - context.latency.playback_delay_ms, stageTotal);
   }
 }

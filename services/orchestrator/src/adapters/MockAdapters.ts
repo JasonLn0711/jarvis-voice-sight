@@ -111,15 +111,15 @@ export class MockLLMAdapter implements LLMPort {
     }
     switch (input.emotion?.label) {
       case "anxious":
-        return "先拆一題來練。";
+        return "先穩住，我在。";
       case "tired":
-        return "今天最耗你的事是？";
+        return "先讓腦袋休息。";
       case "confused":
-        return "卡住的是哪一步？";
+        return "這裡先慢慢理。";
       case "excited":
-        return "最想先做哪件？";
+        return "這個方向不錯。";
       case "sad":
-        return "哪一刻最難受？";
+        return "這真的不好受。";
       case "angry":
         return "先把那句說出來。";
       case "uncertain":
@@ -127,13 +127,64 @@ export class MockLLMAdapter implements LLMPort {
       default:
         break;
     }
+    if (input.userText.includes("新客戶") || input.userText.includes("拜訪")) {
+      return "先抓住目標。";
+    }
+    if (input.userText.includes("排斥") || input.userText.includes("抗拒")) {
+      return "先不要急著推。";
+    }
+    if (input.userText.includes("防備")) {
+      return "先聊他的生活。";
+    }
+    if (input.userText.includes("三十多歲") || input.userText.includes("小孩")) {
+      return "家庭責任是切入點。";
+    }
+    if (input.userText.includes("像推銷")) {
+      return "用關心的語氣。";
+    }
+    if (input.userText.includes("家庭支出")) {
+      return "可以，這很自然。";
+    }
+    if (input.userText.includes("風險缺口")) {
+      return "這比推產品好。";
+    }
+    if (input.userText.includes("顧問") || input.userText.includes("不是業務")) {
+      return "這就是信任感。";
+    }
+    if (input.userText.includes("知道怎麼開場")) {
+      return "可以，先穩穩聊。";
+    }
+    if (input.userText.includes("保險") || input.userText.includes("保單") || input.userText.includes("投保")) {
+      return "先建立信任感。";
+    }
+    if (input.userText.includes("排斥") || input.userText.includes("抗拒") || input.userText.includes("不想買")) {
+      return "先聽他的顧慮。";
+    }
+    if (input.userText.includes("開場") || input.userText.includes("開口") || input.userText.includes("第一句")) {
+      return "用關心開場。";
+    }
+    if (input.userText.includes("報酬") || input.userText.includes("獲利") || input.userText.includes("收益")) {
+      return "避免承諾報酬。";
+    }
+    if (input.userText.includes("商品") || input.userText.includes("產品") || input.userText.includes("基金")) {
+      return "不要先談商品。";
+    }
+    if (input.userText.includes("客訴") || input.userText.includes("抱怨") || input.userText.includes("不滿")) {
+      return "先接住情緒。";
+    }
+    if (input.userText.includes("語氣") || input.userText.includes("太急") || input.userText.includes("壓迫")) {
+      return "語氣再放慢。";
+    }
+    if (input.userText.includes("風險") || input.userText.includes("理財") || input.userText.includes("資產")) {
+      return "先釐清他的目標。";
+    }
     if (input.userText.includes("面試") || input.userText.includes("怕")) {
-      return "你最擔心哪部分？";
+      return "先抓一個重點。";
     }
     if (input.userText.includes("累")) {
-      return "今天最耗你的事是？";
+      return "你可以慢慢說。";
     }
-    return "你想從哪裡說起？";
+    return "我懂你的意思。";
   }
 }
 
@@ -144,6 +195,52 @@ export class MockTTSAdapter implements TTSPort {
     }
     return {
       audioUrl: `/mock-audio/${encodeURIComponent(input.text)}.wav`,
+      ttsCacheHit: [
+        "好，我在。",
+        "你說。",
+        "我懂。",
+        "繼續說。",
+        "你最擔心哪一點？",
+        "用一句話收尾。",
+        "這個成果很關鍵。",
+        "先講產品感。",
+        "先講延遲目標。",
+        "先講備援方案。",
+        "研究重點很清楚。",
+        "自我介紹先求穩。",
+        "先抓一個重點。",
+        "這句再短一點。",
+        "先講產品手感。",
+        "先穩住，我在。",
+        "我懂你的意思。",
+        "這樣講可以。",
+        "你可以慢慢說。",
+        "先抓最小版本。",
+        "你已經接近了。",
+        "這裡先求穩。",
+        "先建立信任感。",
+        "先聽他的顧慮。",
+        "用關心開場。",
+        "先釐清他的目標。",
+        "不要先談商品。",
+        "避免承諾報酬。",
+        "這裡要保守講。",
+        "先尊重他的節奏。",
+        "先接住情緒。",
+        "語氣再放慢。",
+        "先抓住目標。",
+        "先不要急著推。",
+        "先聊他的生活。",
+        "家庭責任是切入點。",
+        "用關心的語氣。",
+        "可以，這很自然。",
+        "這比推產品好。",
+        "這就是信任感。",
+        "可以，先穩穩聊。"
+      ].includes(input.text),
+      upstreamTtsMs: 160,
+      audioEncodeMs: 0,
+      normalizedText: input.text,
       durationMs: 160,
       format: "wav"
     };

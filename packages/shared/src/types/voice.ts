@@ -44,6 +44,9 @@ export type LatencyReport = {
   llm_ms: number;
   policy_ms: number;
   tts_ms: number;
+  audio_encode_ms: number;
+  playback_delay_ms: number;
+  perceived_total_ms: number;
   total_ms: number;
 };
 
@@ -56,6 +59,7 @@ export type VoiceTurnResponse = {
   reply: string;
   emotion?: EmotionResult;
   audio_url?: string;
+  tts_cache_hit?: boolean;
   latency: LatencyReport;
   status: VoiceTurnStatus;
 };
