@@ -77,15 +77,62 @@ Use environment variables to switch providers:
 ```env
 ASR_PROVIDER=breeze_asr_25
 ASR_SERVICE_URL=http://localhost:8001
+ASR_RUNTIME=breeze_asr_25
+BREEZE_ASR_CT2_MODEL_PATH=models/breeze-asr-25-ct2
 
-LLM_PROVIDER=gemma_4_e4b
+LLM_PROVIDER=gemma_4_e2b
 LLM_SERVICE_URL=http://localhost:8002
+LLM_RUNTIME=ollama
+OLLAMA_MODEL=gemma4:e2b
 
 TTS_PROVIDER=breezyvoice
 TTS_SERVICE_URL=http://localhost:8003
+TTS_RUNTIME=openai_compatible
+OPENAI_TTS_BASE_URL=http://localhost:9003/v1
 ```
 
-The real services must preserve the same HTTP contracts documented in `docs/API_SPEC.md`.
+Selected fast path:
+
+1. Breeze-ASR-25 runs through `faster-whisper` after conversion to CTranslate2.
+2. Gemma 4 E2B int4 runs through Ollama as `gemma4:e2b` with RTX GPU acceleration.
+3. BreezyVoice runs as a warm OpenAI-compatible TTS service with RTX GPU
+   acceleration.
+
+Current real-demo bottleneck:
+
+```text
+real voice-turn total: 7.45s
+TTS stage: 6.8s
+target v0.2 real turn: 2.5s to 4s
+```
+
+The next optimization pass should reduce BreezyVoice latency before changing
+models:
+
+1. Keep Jarvis replies in the 6-18 character voice range; use `REPLY_MAX_CHARS=14` for latency-critical demos.
+2. Warm up TTS with the default finance / insurance canonical reply set, or override it with `BREEZYVOICE_WARMUP_TEXTS`.
+3. Cache fixed short replies such as `你說。`, `我懂。`, `繼續說。`, and
+   `你最擔心哪一點？`.
+4. Add `audio_encode_ms` and structured latency logs.
+
+See `docs/REAL_MODEL_INTEGRATION.md` for conversion and startup commands.
+
+Quick preflight:
+
+```bash
+npm run real:health
+npm run real:start-ollama
+npm run real:pull-gemma
+npm run real:start-asr
+npm run real:start-breezyvoice
+npm run real:preflight
+```
+
+Convert Breeze-ASR-25 for `faster-whisper`:
+
+```bash
+npm run real:convert-asr
+```
 
 ## Troubleshooting
 

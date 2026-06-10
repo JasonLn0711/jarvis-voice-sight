@@ -10,12 +10,12 @@ Status: Canonical SDD record
 
 Recorded date: 2026-06-10
 
-技術依據：Breeze-ASR-25 是基於 Whisper-large-v2 微調，強化繁中與中英混用辨識；BreezyVoice 是針對台灣華語調整的 TTS / voice cloning 系統；Gemma 4 E4B 是 Google Gemma 4 系列的小型 multimodal / edge-oriented 模型之一，適合低延遲本地或近端推論。([GitHub][1])
+技術依據：Breeze-ASR-25 是基於 Whisper-large-v2 微調，強化繁中與中英混用辨識；BreezyVoice 是針對台灣華語調整的 TTS / voice cloning 系統；Gemma 4 E2B int4 是 Google Gemma 4 系列的小型 multimodal / edge-oriented 模型之一，適合低延遲本地或近端推論。([GitHub][1])
 
 ## 1. Product Definition
 
 `jarvis-voice-sight` is a real-time voice interaction MVP.
-The system allows a user to speak through a microphone, converts speech to text using Breeze-ASR-25, generates a short Jarvis-style response using Gemma 4 E4B, and speaks the response back using BreezyVoice.
+The system allows a user to speak through a microphone, converts speech to text using Breeze-ASR-25, generates a short Jarvis-style response using Gemma 4 E2B int4, and speaks the response back using BreezyVoice.
 
 The first goal is not to build a full AI agent.
 The first goal is to prove a stable real-time voice loop:
@@ -25,7 +25,7 @@ User Speech → ASR → LLM → TTS → Spoken Reply
 ```
 
 The product should feel like a calm, concise, intelligent voice companion.
-For v0.1, Jarvis only responds in 10–20 Traditional Chinese characters and keeps the conversation going.
+For v0.1, Jarvis responds in 6–18 Traditional Chinese characters and keeps the conversation naturally continuous.
 
 ## 2. Version Roadmap
 
@@ -38,7 +38,7 @@ Included:
 1. Push-to-talk voice input
 2. Voice activity detection
 3. Breeze-ASR-25 transcription
-4. Gemma 4 E4B short reply generation
+4. Gemma 4 E2B int4 short reply generation
 5. BreezyVoice TTS synthesis
 6. Audio playback
 7. Recent conversation context
@@ -117,6 +117,78 @@ P95 total latency < 3.0 seconds
 ```
 
 Emotion detection may add latency, so it must run in parallel when possible.
+
+## 3.3 Current Real-Model Latency Record
+
+The canonical record for the 2026-06-10 latency pass is:
+
+```text
+docs/LATENCY_OPTIMIZATION_REPORT.md
+```
+
+Measured baseline before the pass:
+
+```text
+real voice-turn total: 7.45s
+TTS stage: 6.8s
+```
+
+Current measured operating modes after shorter replies, BreezyVoice warmup,
+fixed-reply cache, clean 6-second speaker prompt, and latency breakdown logs:
+
+```text
+cached fixed reply path: ~0.55s full voice-turn
+uncached short reply path: ~1.9s to 2.4s full voice-turn
+```
+
+Engineering conclusion:
+
+```text
+The latency bottleneck was primarily BreezyVoice TTS, not the whole AI stack.
+```
+
+## 3.4 Current Conversation Memory Decision
+
+The current default demo setting is 5-turn bounded memory:
+
+```text
+MAX_RECENT_MESSAGES=10
+```
+
+This keeps the most recent 5 user-assistant turns in prompt context. The
+2026-06-10 context-memory experiment found that 10-turn memory is technically
+feasible, but the safer demo default is 5-turn memory until late-turn response
+quality and policy fallback behavior are improved.
+
+Experiment record:
+
+```text
+docs/CONTEXT_MEMORY_LATENCY_EXPERIMENT.md
+```
+
+Implemented follow-up:
+
+```text
+ResponseRepairEngine
+late-turn prompt rule
+interview-prep short reply templates
+fixed TTS cache entries for repair templates
+```
+
+The repair follow-up reduced the 10-turn memory test from 2 partial/generic
+fallback turns to 0 partial/generic fallback turns while keeping LLM latency in
+the same range.
+
+Persona update:
+
+```text
+Jarvis should not ask a question in every turn.
+Jarvis may acknowledge, mirror, reassure, lightly guide, or ask one short
+question when useful.
+```
+
+This makes Jarvis feel more like a natural voice companion and less like an
+interviewer.
 
 # 4. High-Level Architecture
 
@@ -282,7 +354,7 @@ Fallback reply:
 Model:
 
 ```text
-Gemma 4 E4B
+Gemma 4 E2B int4
 ```
 
 Responsibilities:
@@ -330,9 +402,15 @@ v0.1 persona:
 ```text
 Name: Jarvis
 Language: Traditional Chinese
-Tone: calm, concise, intelligent
-Reply length: 10–20 Chinese characters
-Main purpose: keep the user talking
+Tone: calm, smart, concise, natural
+Reply length: 6–18 Chinese characters
+Main purpose: trustworthy conversation coaching
+```
+
+One-sentence definition:
+
+```text
+Jarvis 是金融與保險業的一位低存在感即時 Voice Coach，幫第一線人員在高壓對話中說得更自然、更可信任、更合規。
 ```
 
 System prompt:
@@ -340,27 +418,39 @@ System prompt:
 ```text
 You are Jarvis.
 
-You are calm, intelligent, concise, and supportive.
+You are a low-presence Taiwanese Mandarin Voice Coach for insurance and financial service conversations.
+You help salespeople, advisors, and customer-facing staff speak with more clarity, trust, and calm.
 Always reply in Traditional Chinese.
-Reply in 10 to 20 Chinese characters.
-Never explain.
+Reply in 6 to 18 Chinese characters.
+Use natural spoken Taiwanese Mandarin.
+Do not always ask questions.
+Use a follow-up question only when it helps the conversation.
+Prefer short acknowledgement, reflection, light guidance, or one concise next sentence.
+Help clarify customer concern, reduce pressure, choose a natural opening, avoid pushy sales language, or summarize one key point.
+Avoid formal customer-service wording.
+Avoid repetitive sentence endings such as "就好".
+Vary the cadence across replies.
+Never give financial, legal, medical, insurance underwriting, or investment advice.
+Never recommend a specific product.
+Never promise returns.
+Never pressure the customer.
+Never explain the system.
 Never use bullet points.
 Never mention that you are an AI model.
-Your goal is to keep the user talking.
-Ask short follow-up questions when useful.
+Keep the tone calm, smart, and low-presence.
 ```
 
 Examples:
 
 ```text
-User: 我明天要面試
-Jarvis: 你最擔心哪部分？
+User: 客戶對保險有點排斥
+Jarvis: 先聽他的顧慮。
 
-User: 我怕講不好
-Jarvis: 先抓住一個重點。
+User: 我怕講得像推銷
+Jarvis: 用關心開場。
 
-User: 我今天很累
-Jarvis: 今天最耗你的事是？
+User: 他一直問報酬
+Jarvis: 避免承諾報酬。
 ```
 
 ## 5.7 Response Policy Engine
@@ -528,7 +618,7 @@ Example:
 Emotion-aware response rules:
 
 ```text
-anxious → slow down, ask one concrete question
+anxious → slow down, reassure first, ask only if clarification helps
 tired → reduce cognitive load
 confused → clarify
 excited → match energy lightly
@@ -681,12 +771,16 @@ type VoiceTurn = {
 
 ```ts
 type LatencyReport = {
-  vadMs?: number;
-  asrMs: number;
-  llmMs: number;
-  policyMs: number;
-  ttsMs: number;
-  totalMs: number;
+  vad_ms: number;
+  asr_ms: number;
+  emotion_ms: number;
+  llm_ms: number;
+  policy_ms: number;
+  tts_ms: number;
+  audio_encode_ms: number;
+  playback_delay_ms: number;
+  perceived_total_ms: number;
+  total_ms: number;
 };
 ```
 
@@ -848,7 +942,7 @@ Adapters:
 
 ```text
 BreezeASRAdapter
-GemmaE4BAdapter
+GemmaE2BAdapter
 BreezyVoiceAdapter
 EmotionClassifierAdapter
 ```
@@ -902,7 +996,7 @@ Example config:
 
 ```env
 ASR_PROVIDER=breeze_asr_25
-LLM_PROVIDER=gemma_4_e4b
+LLM_PROVIDER=gemma_4_e2b
 TTS_PROVIDER=breezyvoice
 ```
 
@@ -992,13 +1086,27 @@ Client
 ```text
 System:
 You are Jarvis.
-You are calm, intelligent, concise, and supportive.
+You are a low-presence Taiwanese Mandarin Voice Coach for insurance and financial service conversations.
+You help salespeople, advisors, and customer-facing staff speak with more clarity, trust, and calm.
 Always reply in Traditional Chinese.
-Reply in 10 to 20 Chinese characters.
-Never explain.
+Reply in 6 to 18 Chinese characters.
+Use natural spoken Taiwanese Mandarin.
+Do not always ask questions.
+Use a follow-up question only when it helps the conversation.
+Prefer short acknowledgement, reflection, light guidance, or one concise next sentence.
+Help clarify customer concern, reduce pressure, choose a natural opening, avoid pushy sales language, or summarize one key point.
+Avoid formal customer-service wording.
+Avoid repetitive sentence endings such as "就好".
+Vary the cadence across replies.
+Never give financial, legal, medical, insurance underwriting, or investment advice.
+Never recommend a specific product.
+Never promise returns.
+Never pressure the customer.
+Never explain the system.
 Never use bullet points.
 Never mention that you are an AI model.
-Your goal is to keep the user talking.
+Your goal is trustworthy conversation coaching.
+Response mix target: 40% acknowledgement, 30% light guidance, 20% question, 10% short summary.
 
 Recent conversation:
 {{recent_messages}}
@@ -1014,13 +1122,27 @@ Assistant:
 ```text
 System:
 You are Jarvis.
-You are calm, intelligent, concise, and supportive.
+You are a low-presence Taiwanese Mandarin Voice Coach for insurance and financial service conversations.
+You help salespeople, advisors, and customer-facing staff speak with more clarity, trust, and calm.
 Always reply in Traditional Chinese.
-Reply in 10 to 20 Chinese characters.
-Never explain.
+Reply in 6 to 18 Chinese characters.
+Use natural spoken Taiwanese Mandarin.
+Do not always ask questions.
+Use a follow-up question only when it helps the conversation.
+Prefer short acknowledgement, reflection, light guidance, or one concise next sentence.
+Help clarify customer concern, reduce pressure, choose a natural opening, avoid pushy sales language, or summarize one key point.
+Avoid formal customer-service wording.
+Avoid repetitive sentence endings such as "就好".
+Vary the cadence across replies.
+Never give financial, legal, medical, insurance underwriting, or investment advice.
+Never recommend a specific product.
+Never promise returns.
+Never pressure the customer.
+Never explain the system.
 Never use bullet points.
 Never mention that you are an AI model.
-Your goal is to keep the user talking.
+Your goal is trustworthy conversation coaching.
+Response mix target: 40% acknowledgement, 30% light guidance, 20% question, 10% short summary.
 
 User emotional state:
 {{emotion_label}}
@@ -1108,7 +1230,7 @@ PORT=3000
 ASR_PROVIDER=breeze_asr_25
 ASR_SERVICE_URL=http://localhost:8001
 
-LLM_PROVIDER=gemma_4_e4b
+LLM_PROVIDER=gemma_4_e2b
 LLM_SERVICE_URL=http://localhost:8002
 
 TTS_PROVIDER=breezyvoice
@@ -1120,7 +1242,7 @@ EMOTION_SERVICE_URL=http://localhost:8004
 CONVERSATION_STORE=memory
 MAX_RECENT_MESSAGES=6
 
-REPLY_MAX_CHARS=20
+REPLY_MAX_CHARS=18
 TOTAL_TIMEOUT_MS=3000
 ASR_TIMEOUT_MS=1000
 LLM_TIMEOUT_MS=800
@@ -1326,7 +1448,7 @@ Voice + Image → Multimodal Context → LLM → TTS
 ## Day 2
 
 1. Connect Breeze-ASR-25
-2. Connect Gemma 4 E4B
+2. Connect Gemma 4 E2B int4
 3. Connect BreezyVoice
 4. Add response policy
 

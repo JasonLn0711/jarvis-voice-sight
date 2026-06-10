@@ -27,6 +27,13 @@ npm run typecheck
 npm run lint
 npm run test
 npm run benchmark
+npm run real:health
+npm run real:preflight
+npm run real:convert-asr
+npm run real:start-ollama
+npm run real:start-asr
+npm run real:start-breezyvoice
+npm run real:pull-gemma
 ```
 
 ## Architecture
@@ -129,18 +136,36 @@ v0.2:
 - [API Spec](docs/API_SPEC.md)
 - [Prompt Spec](docs/PROMPT_SPEC.md)
 - [Latency Budget](docs/LATENCY_BUDGET.md)
+- [Latency Optimization Report](docs/LATENCY_OPTIMIZATION_REPORT.md)
+- [Context Memory Latency Experiment](docs/CONTEXT_MEMORY_LATENCY_EXPERIMENT.md)
 - [UI / UX Specification](docs/UI_UX_SPEC.md)
 - [Runbook](docs/RUNBOOK.md)
+- [Real Model Integration](docs/REAL_MODEL_INTEGRATION.md)
 - [Codex Goal Prompt v0.1 to v0.2](docs/CODEX_GOAL_PROMPT_v0.1_to_v0.2.md)
 - [Source brief: 2026-06-10 Jarvis v0.1 complete spec](docs/source-briefs/2026-06-10-jarvis-v0.1-complete-spec.md)
 
 ## Real Model Integration
 
-The current implementation is mock-first. Real model hooks are already separated:
+The implementation now supports real model activation while keeping mock mode
+available. The selected fast path is:
+
+1. Breeze-ASR-25 through `faster-whisper` with a converted CTranslate2 model.
+2. Gemma 4 E2B int4 through Ollama as `gemma4:e2b` on the RTX GPU.
+3. BreezyVoice through a warm OpenAI-compatible TTS service on the RTX GPU.
+
+Real model hooks remain separated:
 
 1. `BreezeASRAdapter`
-2. `GemmaE4BAdapter`
+2. `GemmaE2BAdapter`
 3. `BreezyVoiceAdapter`
 4. `EmotionClassifierAdapter`
 
-Switch providers through `.env` after the real service endpoints expose the same HTTP contracts.
+Switch providers through `.env` after the real service endpoints expose the same
+HTTP contracts. See [Real Model Integration](docs/REAL_MODEL_INTEGRATION.md).
+
+Use `.env.real.example` as the real-model configuration template and run:
+
+```bash
+npm run real:health
+npm run real:preflight
+```
