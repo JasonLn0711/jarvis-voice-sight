@@ -187,6 +187,7 @@ Desktop layout:
 │              [Hold to Speak]                 │
 │                                              │
 │     latency · emotion · session state        │
+│     Jason Lin · NYCU · v0.2 · system stack   │
 └──────────────────────────────────────────────┘
 ```
 
@@ -431,6 +432,46 @@ Example:
 
 ```text
 1.42s · anxious · session active
+```
+
+## 9.7 SystemStack
+
+Purpose:
+
+Show the demo's product identity and technical choices without turning the UI
+into a developer dashboard.
+
+Required content:
+
+```text
+Jason Lin · NYCU
+Jarvis Voice Sight
+v0.2
+Insurance voice coach
+Breeze-ASR-25
+Gemma 4 E2B int4
+BreezyVoice
+RTX 4090 Laptop GPU
+```
+
+Visual rules:
+
+```text
+small metadata typography
+glass surface
+thin divider
+no raw JSON
+no logs
+no tables
+no loud badges
+```
+
+Placement:
+
+```text
+At the bottom of the screen as a compact metadata rail.
+Keep it visually quieter than the voice orb.
+Never use it as a large dashboard panel.
 ```
 
 # 10. Motion Design

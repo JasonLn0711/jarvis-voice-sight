@@ -6,6 +6,7 @@ import { AppShell } from "@/components/AppShell";
 import { HoldToSpeakButton } from "@/components/HoldToSpeakButton";
 import { JarvisReplyCard } from "@/components/JarvisReplyCard";
 import { StatusStrip } from "@/components/StatusStrip";
+import { SystemStack } from "@/components/SystemStack";
 import { TranscriptCard } from "@/components/TranscriptCard";
 import { VoiceOrb } from "@/components/VoiceOrb";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
@@ -58,7 +59,7 @@ export default function Home() {
           Jarvis Voice Sight
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-[17px] font-normal leading-relaxed text-[color:var(--text-secondary)] sm:mt-5 sm:text-[18px]">
-          A real-time voice companion that listens, thinks, and responds.
+          A real-time insurance voice coach powered by RTX GPU inference.
         </p>
       </motion.header>
 
@@ -83,7 +84,7 @@ export default function Home() {
         <HoldToSpeakButton state={voiceState} onPressStart={handlePressStart} onPressEnd={handlePressEnd} />
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
           <StatusStrip
-            latencyMs={currentTurn?.latency.total_ms}
+            latencyMs={currentTurn?.latency.perceived_total_ms ?? currentTurn?.latency.total_ms}
             emotion={currentTurn?.emotion?.label}
             sessionState={recorder.mockMode ? "mock mode" : "session active"}
           />
@@ -108,6 +109,8 @@ export default function Home() {
           />
         </motion.div>
       )}
+
+      <SystemStack />
     </AppShell>
   );
 }
