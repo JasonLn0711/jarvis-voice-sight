@@ -1,6 +1,6 @@
-import type { EmotionLabel, VoiceState, VoiceTurnResponse } from "@jarvis/shared";
+import type { EmotionLabel, VoiceState, VoiceTurnResponse, VoiceTurnStreamEvent } from "@jarvis/shared";
 
-export type { EmotionLabel, VoiceState, VoiceTurnResponse };
+export type { EmotionLabel, VoiceState, VoiceTurnResponse, VoiceTurnStreamEvent };
 
 export type VoiceTurnPayload = {
   session_id: string;

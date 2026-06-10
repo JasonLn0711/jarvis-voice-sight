@@ -14,12 +14,13 @@ const stateColor: Record<VoiceState, string> = {
   TRANSCRIBING: "var(--accent-strong)",
   THINKING: "var(--thinking)",
   SPEAKING: "var(--speaking)",
+  INTERRUPTED: "var(--accent-strong)",
   ERROR: "var(--error)"
 };
 
 export function VoiceOrb({ state, level = 0.48 }: VoiceOrbProps) {
   const activeColor = stateColor[state];
-  const scale = state === "LISTENING" || state === "SPEAKING" ? 1 + level * 0.08 : 1;
+  const scale = state === "LISTENING" || state === "SPEAKING" || state === "INTERRUPTED" ? 1 + level * 0.08 : 1;
 
   return (
     <div className="relative flex h-60 w-60 items-center justify-center sm:h-80 sm:w-80" aria-label={`Voice state ${state}`}>
@@ -67,7 +68,7 @@ export function VoiceOrb({ state, level = 0.48 }: VoiceOrbProps) {
       >
         <div className="absolute inset-5 rounded-full bg-[radial-gradient(circle_at_34%_24%,rgba(255,255,255,0.70),rgba(215,230,255,0.28)_18%,rgba(167,199,255,0.12)_42%,rgba(255,255,255,0.03)_72%)]" />
         <div className="absolute inset-0 rounded-full bg-[linear-gradient(140deg,rgba(255,255,255,0.18),transparent_42%,rgba(255,255,255,0.08))]" />
-        {(state === "LISTENING" || state === "SPEAKING") && (
+        {(state === "LISTENING" || state === "SPEAKING" || state === "INTERRUPTED") && (
           <motion.div
             className="absolute inset-0 rounded-full border border-white/20"
             animate={{ scale: [0.82, 1.12, 0.82], opacity: [0.18, 0.42, 0.18] }}

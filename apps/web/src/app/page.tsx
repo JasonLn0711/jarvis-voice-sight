@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/AppShell";
 import { HoldToSpeakButton } from "@/components/HoldToSpeakButton";
@@ -10,10 +10,11 @@ import { SystemStack } from "@/components/SystemStack";
 import { TranscriptCard } from "@/components/TranscriptCard";
 import { VoiceOrb } from "@/components/VoiceOrb";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
+import { useRealtimeVoiceController } from "@/hooks/useRealtimeVoiceController";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import { useVoiceTurn } from "@/hooks/useVoiceTurn";
 import { STATE_COPY } from "@/lib/constants";
-import type { VoiceState } from "@/lib/types";
+import type { VoiceState, VoiceTurnPayload, VoiceTurnStreamEvent } from "@/lib/types";
 
 export default function Home() {
   const [voiceState, setVoiceState] = useState<VoiceState>("IDLE");
@@ -23,28 +24,102 @@ export default function Home() {
 
   const currentTurn = voiceTurn.lastTurn;
 
+  const playStreamEvent = useCallback(async (event: VoiceTurnStreamEvent) => {
+    if (event.type === "transcript") {
+      setVoiceState("THINKING");
+      return;
+    }
+    if (event.type === "sentence") {
+      setVoiceState("THINKING");
+      return;
+    }
+    if (event.type === "audio_chunk") {
+      setVoiceState("SPEAKING");
+      await audio.play(event.audio_url, event.turn_id, voiceTurn.canPlayTurn);
+      return;
+    }
+    if (event.type === "voice_turn_failed") {
+      setVoiceState("ERROR");
+    }
+  }, [audio, voiceTurn]);
+
+  const processVoicePayload = useCallback(async (payload: Omit<VoiceTurnPayload, "session_id" | "client_timestamp">, mode: "single" | "stream" = "single") => {
+    try {
+      setVoiceState("TRANSCRIBING");
+      if (mode === "stream") {
+        await voiceTurn.submitStream(payload, playStreamEvent);
+        setVoiceState("LISTENING");
+        return;
+      }
+      setVoiceState("THINKING");
+      const response = await voiceTurn.submit(payload);
+      if (response.audio_url) {
+        setVoiceState("SPEAKING");
+        const played = await audio.play(response.audio_url, response.turn_id, voiceTurn.canPlayTurn);
+        if (!played) {
+          setVoiceState("LISTENING");
+          return;
+        }
+      }
+      setVoiceState("IDLE");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setVoiceState("INTERRUPTED");
+        return;
+      }
+      setVoiceState("ERROR");
+    }
+  }, [audio, playStreamEvent, voiceTurn]);
+
+  const realtime = useRealtimeVoiceController({
+    onUtterance: (payload) => processVoicePayload(payload, "stream"),
+    isPlaybackActive: audio.isPlaying,
+    onInterrupted: () => {
+      audio.stop();
+      voiceTurn.cancelTurn();
+      setVoiceState("INTERRUPTED");
+    }
+  });
+  const orbLevel = realtime.enabled ? Math.min(1, realtime.level * 8) : recorder.level;
+
+  useEffect(() => {
+    if (!realtime.enabled) {
+      return;
+    }
+    if (realtime.state === "listening" || realtime.state === "user_speaking") {
+      setVoiceState("LISTENING");
+    }
+    if (realtime.state === "interrupted") {
+      setVoiceState("INTERRUPTED");
+    }
+    if (realtime.state === "asr_processing") {
+      setVoiceState("TRANSCRIBING");
+    }
+    if (realtime.state === "thinking") {
+      setVoiceState("THINKING");
+    }
+    if (realtime.state === "speaking") {
+      setVoiceState("SPEAKING");
+    }
+    if (realtime.state === "error_recovery") {
+      setVoiceState("ERROR");
+    }
+  }, [realtime.enabled, realtime.state]);
+
   async function handlePressStart() {
+    if (realtime.enabled) {
+      return;
+    }
     setVoiceState("LISTENING");
     await recorder.start();
   }
 
   async function handlePressEnd() {
-    if (voiceState !== "LISTENING") {
+    if (realtime.enabled || voiceState !== "LISTENING") {
       return;
     }
-    try {
-      setVoiceState("TRANSCRIBING");
-      const payload = await recorder.stop();
-      setVoiceState("THINKING");
-      const response = await voiceTurn.submit(payload);
-      if (response.audio_url) {
-        setVoiceState("SPEAKING");
-        await audio.play(response.audio_url);
-      }
-      setVoiceState("IDLE");
-    } catch {
-      setVoiceState("ERROR");
-    }
+    const payload = await recorder.stop();
+    await processVoicePayload(payload);
   }
 
   return (
@@ -63,7 +138,7 @@ export default function Home() {
         </p>
       </motion.header>
 
-      <VoiceOrb state={voiceState} level={recorder.level} />
+      <VoiceOrb state={voiceState} level={orbLevel} />
 
       <motion.p
         className="mb-5 mt-1 text-[15px] text-[color:var(--text-secondary)] sm:mb-7 sm:mt-2"
@@ -86,8 +161,35 @@ export default function Home() {
           <StatusStrip
             latencyMs={currentTurn?.latency.perceived_total_ms ?? currentTurn?.latency.total_ms}
             emotion={currentTurn?.emotion?.label}
-            sessionState={recorder.mockMode ? "mock mode" : "session active"}
+            sessionState={
+              realtime.enabled
+                ? `realtime ${realtime.state.replace("_", " ")}`
+                : recorder.mockMode
+                  ? "mock mode"
+                  : "session active"
+            }
           />
+          <button
+            type="button"
+            onClick={async () => {
+              if (realtime.enabled) {
+                realtime.stop();
+                setVoiceState("IDLE");
+                return;
+              }
+              try {
+                const started = await realtime.start();
+                if (started) {
+                  setVoiceState("LISTENING");
+                }
+              } catch {
+                setVoiceState("ERROR");
+              }
+            }}
+            className="text-[13px] text-[color:var(--text-tertiary)] transition hover:text-[color:var(--text-secondary)]"
+          >
+            {realtime.enabled ? "realtime listening" : "enable realtime mode"}
+          </button>
           <button
             type="button"
             onClick={() => recorder.setMockMode(!recorder.mockMode)}
