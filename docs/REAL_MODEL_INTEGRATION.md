@@ -157,7 +157,7 @@ LLM_PROVIDER=vllm
 LLM_SERVICE_URL=http://localhost:8002
 LLM_RUNTIME=vllm
 VLLM_BASE_URL=http://localhost:8000/v1
-VLLM_MODEL=gemma-4-e2b
+VLLM_MODEL=google/gemma-4-E2B-it
 ```
 
 Run the Jarvis LLM wrapper against vLLM:
@@ -166,7 +166,7 @@ Run the Jarvis LLM wrapper against vLLM:
 cd services/llm
 LLM_RUNTIME=vllm \
 VLLM_BASE_URL=http://localhost:8000/v1 \
-VLLM_MODEL=gemma-4-e2b \
+VLLM_MODEL=google/gemma-4-E2B-it \
 ../../.venv-llm/bin/python -m uvicorn src.server:app --host 0.0.0.0 --port 8002
 ```
 

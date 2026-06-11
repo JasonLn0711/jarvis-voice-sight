@@ -16,11 +16,12 @@ LLM_RUNTIME=vllm supported by the LLM wrapper through OpenAI-compatible chat com
 VLLM_BASE_URL and VLLM_MODEL added to env templates
 MAX_PARALLEL_TTS_WORKERS / CHUNK_TARGET_SECONDS / SILENCE_PADDING_MS aliases added
 v0.5 latency aliases added to voice-turn and streaming completion latency
-long-form streaming completion now exposes audio_stitch metadata for WAV normalization, silence padding, and stitching verification
+long-form streaming completion now returns parseable stitched PCM WAV evidence for WAV normalization, silence padding, and stitching verification
 demo:real starts LLM wrapper and TTS wrapper explicitly
 demo:real reuses already healthy LLM/TTS wrappers to avoid duplicate port binds
 demo:real derives LLM_RUNTIME=vllm from LLM_PROVIDER=vllm when LLM_RUNTIME is not set
-demo:real chooses Ollama startup or vLLM endpoint check from env
+demo:real chooses Ollama startup or vLLM startup from env
+real:preflight checks Ollama or vLLM live runtime according to the selected LLM provider
 ```
 
 Existing v0.3.1 / v0.4 controls preserved:
@@ -54,7 +55,7 @@ vLLM path:
 LLM_PROVIDER=vllm
 LLM_RUNTIME=vllm
 VLLM_BASE_URL=http://localhost:8000/v1
-VLLM_MODEL=gemma-4-e2b
+VLLM_MODEL=google/gemma-4-E2B-it
 ```
 
 ASR and TTS remain independent:
@@ -105,7 +106,7 @@ tts_chunk_count -> tts_parallel_chunks
 ```text
 loads .env.real.example, .env, and .env.real
 starts Ollama when LLM_RUNTIME/LLM_PROVIDER is not vllm
-checks VLLM_BASE_URL /models when LLM_RUNTIME or LLM_PROVIDER is vllm
+starts or reuses a vLLM OpenAI-compatible endpoint when LLM_RUNTIME or LLM_PROVIDER is vllm
 starts Breeze-ASR
 starts BreezyVoice upstream
 starts Jarvis LLM wrapper
@@ -134,11 +135,11 @@ Long-form `voice_turn_completed` events include:
 ## 5. Current Limitations
 
 ```text
-vLLM server startup is not bundled; demo:real expects an external vLLM OpenAI-compatible endpoint when LLM_RUNTIME=vllm
-real preflight currently validates the available local Ollama runner and BreezyVoice/ASR GPU paths
+real preflight validates the selected LLM runtime path: Ollama in Ollama mode or vLLM in vLLM mode, plus BreezyVoice/ASR GPU paths
 browser VAD is still lightweight RMS-driven
-WAV normalization / stitching remains represented as orchestrator merge metadata
-in-flight upstream TTS request abort is still a future refinement
+vLLM startup requires an installed `vllm` command, `.venv-vllm`, or `VLLM_START_COMMAND`
+real WAV stitching is implemented for PCM 16-bit WAV chunks and needs a live BreezyVoice long-form capture for final production evidence
+in-flight upstream TTS request abort is propagated over HTTP and depends on the upstream runtime honoring request abort
 Taiwan Mandarin voice quality fine-tuning is planned but not implemented
 ```
 
@@ -173,9 +174,8 @@ demo:real: passed, reused already healthy wrappers, and printed Ready for Demo
 ## 7. Next Risks
 
 ```text
-vLLM runtime needs a live endpoint smoke test once a vLLM server is running
-demo:real should eventually learn how to start a local vLLM server when a standard launch command is available
-real WAV stitching should validate sample rate, loudness normalization, and padding with BreezyVoice outputs
+vLLM runtime needs live smoke evidence for the installed runtime/model combination
+real WAV stitching should be profiled with BreezyVoice outputs under GPU memory pressure
 parallel TTS worker count should be profiled against GPU memory pressure
 Taiwan Mandarin voice quality needs licensed data, matched transcript, accent evaluation, and consent controls
 ```

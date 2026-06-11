@@ -105,11 +105,16 @@ async function main() {
     await page.getByText("A real-time insurance voice coach powered by RTX GPU inference.").waitFor();
     await page.getByRole("button", { name: "enable realtime mode" }).click();
     await page.locator("p", { hasText: /realtime listening|realtime user speaking|realtime asr processing/ }).waitFor({ timeout: 10_000 });
+    const bargeInStartMs = Date.now();
     await page.evaluate(() => {
       window.__JARVIS_TEST_PLAYBACK_ACTIVE__ = true;
       window.__JARVIS_TEST_SPEECH_LEVEL__ = 0.2;
     });
     await page.getByText("Interrupted.").waitFor({ timeout: 2_000 });
+    const bargeInStopMs = Date.now() - bargeInStartMs;
+    if (bargeInStopMs > 500) {
+      throw new Error(`barge-in stop exceeded 500ms: ${bargeInStopMs}ms`);
+    }
     await page.evaluate(() => {
       window.__JARVIS_TEST_PLAYBACK_ACTIVE__ = false;
       window.__JARVIS_TEST_SPEECH_LEVEL__ = 0;
@@ -183,6 +188,7 @@ async function main() {
           streamEvents: streamResult.map((event) => event.type),
           audioChunks: audioEvents.length,
           bargeIn: "interrupted_then_listening",
+          bargeInStopMs,
           turnId: startedEvent.turn_id
         },
         null,

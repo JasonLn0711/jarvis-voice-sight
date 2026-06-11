@@ -3,6 +3,8 @@ import type { AudioInput, EmotionInput, LLMInput, LLMPort, TTSPort, TTSInput, VA
 import { loadConfig } from "../config/env.js";
 import { buildServer, createDependencies } from "../server.js";
 import { StreamingVoiceTurnUseCase } from "../usecases/StreamingVoiceTurnUseCase.js";
+import { parsePcm16Wav } from "../utils/audioStitcher.js";
+import { createToneWavBuffer } from "../utils/wav.js";
 
 const baseRequest = {
   session_id: "session_test",
@@ -456,6 +458,7 @@ describe("voice-turn endpoint", () => {
         await new Promise((resolve) => setTimeout(resolve, delay));
         return {
           audioUrl: `/mock-audio/${encodeURIComponent(input.text)}.wav`,
+          audioBase64: createToneWavBuffer(240).toString("base64"),
           ttsCacheHit: false,
           upstreamTtsMs: delay,
           audioEncodeMs: 0,
@@ -498,9 +501,14 @@ describe("voice-turn endpoint", () => {
     expect(firstCompleted.audio_stitch).toMatchObject({
       sample_rate_verified: true,
       normalized: true,
-      silence_padding_ms: 160
+      silence_padding_ms: 160,
+      sample_rate_hz: 16000,
+      chunk_count: firstAudio.length
     });
     expect(firstCompleted.audio_stitch.total_duration_ms).toBeGreaterThan(0);
+    expect(firstCompleted.audio_stitch.stitched_bytes).toBeGreaterThan(44);
+    expect(firstCompleted.audio_stitch.audio_base64).toEqual(expect.any(String));
+    expect(parsePcm16Wav(Buffer.from(firstCompleted.audio_stitch.audio_base64, "base64")).sampleRate).toBe(16000);
     expect(upstreamCalls).toBe(firstAudio.length);
 
     const second = await app.inject({
@@ -549,6 +557,7 @@ describe("voice-turn endpoint", () => {
         completedSyntheses += 1;
         return {
           audioUrl: `/mock-audio/${encodeURIComponent(input.text)}.wav`,
+          audioBase64: createToneWavBuffer(delay).toString("base64"),
           ttsCacheHit: false,
           upstreamTtsMs: delay,
           audioEncodeMs: 0,
@@ -586,6 +595,7 @@ describe("voice-turn endpoint", () => {
       REPLY_MAX_CHARS: "200"
     }));
     const abortController = new AbortController();
+    const seenSignals: AbortSignal[] = [];
 
     deps.llm = {
       async generate(_input: LLMInput) {
@@ -599,10 +609,20 @@ describe("voice-turn endpoint", () => {
 
     deps.tts = {
       async synthesize(input: TTSInput) {
+        if (input.signal) {
+          seenSignals.push(input.signal);
+        }
         const delay = input.text.includes("第一句") ? 5 : 80;
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(resolve, delay);
+          input.signal?.addEventListener("abort", () => {
+            clearTimeout(timeout);
+            resolve();
+          }, { once: true });
+        });
         return {
           audioUrl: `/mock-audio/${encodeURIComponent(input.text)}.wav`,
+          audioBase64: createToneWavBuffer(delay).toString("base64"),
           ttsCacheHit: false,
           upstreamTtsMs: delay,
           audioEncodeMs: 0,
@@ -629,5 +649,7 @@ describe("voice-turn endpoint", () => {
 
     expect(yieldedTypes.filter((type) => type === "audio_chunk")).toHaveLength(1);
     expect(yieldedTypes).not.toContain("voice_turn_completed");
+    expect(seenSignals.length).toBeGreaterThan(0);
+    expect(seenSignals.some((signal) => signal.aborted)).toBe(true);
   });
 });

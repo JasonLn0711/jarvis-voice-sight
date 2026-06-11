@@ -9,6 +9,10 @@ OLLAMA_RUNTIME="${OLLAMA_RUNTIME:-native}"
 OLLAMA_BIN="${OLLAMA_BIN:-.local/ollama/extract/bin/ollama}"
 OLLAMA_MODELS_DIR="${OLLAMA_MODELS:-.local/ollama/models}"
 OLLAMA_LOG="${OLLAMA_LOG:-.jarvis-ollama-native.log}"
+LLM_PROVIDER="${LLM_PROVIDER:-${LLM_RUNTIME:-ollama}}"
+VLLM_BASE_URL="${VLLM_BASE_URL:-http://localhost:8000/v1}"
+VLLM_MODEL="${VLLM_MODEL:-google/gemma-4-E2B-it}"
+VLLM_PORT="${VLLM_PORT:-8000}"
 OPENAI_TTS_BASE_URL="${OPENAI_TTS_BASE_URL:-http://localhost:9003/v1}"
 BREEZYVOICE_REPO_PATH="${BREEZYVOICE_REPO_PATH:-../BreezyVoice}"
 BREEZYVOICE_PROMPT_AUDIO="${BREEZYVOICE_SPEAKER_PROMPT_AUDIO_PATH:-.local/voice-prompts/260610_0127_record_prompt_6s.wav}"
@@ -26,6 +30,22 @@ gpu_compute_pids() {
 port_pids() {
   local port="$1"
   fuser "${port}/tcp" 2>/dev/null | tr ' ' '\n' | sed '/^$/d' || true
+}
+
+port_has_gpu_process() {
+  local port="$1"
+  local pids gpu_pids pid
+  pids="$(port_pids "$port")"
+  gpu_pids="$(gpu_compute_pids)"
+  if [[ -z "$pids" ]]; then
+    return 1
+  fi
+  for pid in $pids; do
+    if grep -qx "$pid" <<<"$gpu_pids"; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 check_port_gpu_process() {
@@ -47,6 +67,33 @@ check_port_gpu_process() {
   done
   echo "MISS $label service is reachable but no port PID is visible in RTX GPU compute processes"
   failures=$((failures + 1))
+}
+
+warm_asr_gpu() {
+  local service_url="${ASR_SERVICE_URL:-http://localhost:8001}"
+  local wav_base64
+  wav_base64="$(python3 - <<'PY'
+import base64
+import io
+import math
+import wave
+
+buf = io.BytesIO()
+with wave.open(buf, "wb") as wav:
+    wav.setnchannels(1)
+    wav.setsampwidth(2)
+    wav.setframerate(16000)
+    frames = bytearray()
+    for i in range(int(0.35 * 16000)):
+        sample = int(math.sin(2 * math.pi * 440 * i / 16000) * 8000)
+        frames += sample.to_bytes(2, "little", signed=True)
+    wav.writeframes(bytes(frames))
+print(base64.b64encode(buf.getvalue()).decode())
+PY
+)"
+  curl -fsS --max-time 120 "${service_url%/}/asr" \
+    -H 'Content-Type: application/json' \
+    -d "{\"audio_format\":\"wav\",\"audio_base64\":\"$wav_base64\",\"turn_id\":\"preflight_asr_gpu\"}" >/dev/null 2>&1 || true
 }
 
 if nvidia-smi >/dev/null 2>&1; then
@@ -87,13 +134,36 @@ fi
 
 if curl -fsS "${ASR_SERVICE_URL:-http://localhost:8001}/health" >/dev/null 2>&1; then
   echo "OK  ASR service reachable: ${ASR_SERVICE_URL:-http://localhost:8001}"
-  check_port_gpu_process "ASR" 8001
+  if port_has_gpu_process 8001; then
+    check_port_gpu_process "ASR" 8001
+  else
+    echo "WARN ASR service is reachable before GPU model warmup; running real WAV ASR warmup"
+    warm_asr_gpu
+    check_port_gpu_process "ASR" 8001
+  fi
 else
   echo "MISS ASR service not reachable: ${ASR_SERVICE_URL:-http://localhost:8001}"
   failures=$((failures + 1))
 fi
 
-if [[ "$OLLAMA_RUNTIME" == "native" ]]; then
+if [[ "$LLM_PROVIDER" == "vllm" ]]; then
+  if curl -fsS "${VLLM_BASE_URL%/}/models" >/dev/null 2>&1; then
+    echo "OK  vLLM OpenAI-compatible server reachable: $VLLM_BASE_URL"
+    if curl -fsS --max-time 120 "${VLLM_BASE_URL%/}/chat/completions" \
+      -H 'Content-Type: application/json' \
+      -d "{\"model\":\"$VLLM_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"請用繁中回一句短句。\"}],\"max_tokens\":8}" >/dev/null 2>&1; then
+      echo "OK  vLLM live chat completion succeeded: $VLLM_MODEL"
+    else
+      echo "MISS vLLM server is reachable but live chat completion failed for model: $VLLM_MODEL"
+      failures=$((failures + 1))
+    fi
+    check_port_gpu_process "vLLM" "$VLLM_PORT"
+  else
+    echo "MISS vLLM server not reachable: $VLLM_BASE_URL"
+    echo "     Run: npm run real:start-vllm"
+    failures=$((failures + 1))
+  fi
+elif [[ "$OLLAMA_RUNTIME" == "native" ]]; then
   if [[ -x "$OLLAMA_BIN" ]]; then
     echo "OK  Native Ollama binary found: $OLLAMA_BIN"
   else
@@ -149,7 +219,9 @@ else
   fi
 fi
 
-if curl -fsS "$OLLAMA_BASE_URL/api/tags" >/dev/null 2>&1; then
+if [[ "$LLM_PROVIDER" == "vllm" ]]; then
+  :
+elif curl -fsS "$OLLAMA_BASE_URL/api/tags" >/dev/null 2>&1; then
   echo "OK  Ollama server reachable: $OLLAMA_BASE_URL"
   if gpu_compute_pids | while read -r pid; do ps -p "$pid" -o args= 2>/dev/null; done | grep -q 'ollama/.*/llama-server\|ollama/llama-server\|llama-server'; then
     echo "OK  Ollama llama-server is using the RTX GPU"

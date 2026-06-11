@@ -67,7 +67,7 @@ start_bg_when_unhealthy() {
 echo "Starting Jarvis real demo services..."
 
 if [[ "$DEMO_LLM_RUNTIME" == "vllm" || "${LLM_PROVIDER:-ollama}" == "vllm" ]]; then
-  wait_for_url "vLLM OpenAI-compatible server" "${VLLM_BASE_URL:-http://localhost:8000/v1}/models" 10
+  npm run real:start-vllm
 else
   npm run real:start-ollama
 fi
@@ -75,7 +75,7 @@ npm run real:start-asr
 npm run real:start-breezyvoice
 
 start_bg_when_unhealthy "llm-wrapper" "http://localhost:8002/health" bash -lc \
-  "cd services/llm && exec env LLM_RUNTIME='${DEMO_LLM_RUNTIME}' OLLAMA_BASE_URL='${OLLAMA_BASE_URL:-http://localhost:11434}' OLLAMA_MODEL='${OLLAMA_MODEL:-gemma4:e2b}' VLLM_BASE_URL='${VLLM_BASE_URL:-http://localhost:8000/v1}' VLLM_MODEL='${VLLM_MODEL:-gemma-4-e2b}' ../../.venv-llm/bin/python -m uvicorn src.server:app --host 0.0.0.0 --port 8002"
+  "cd services/llm && exec env LLM_RUNTIME='${DEMO_LLM_RUNTIME}' OLLAMA_BASE_URL='${OLLAMA_BASE_URL:-http://localhost:11434}' OLLAMA_MODEL='${OLLAMA_MODEL:-gemma4:e2b}' VLLM_BASE_URL='${VLLM_BASE_URL:-http://localhost:8000/v1}' VLLM_MODEL='${VLLM_MODEL:-google/gemma-4-E2B-it}' ../../.venv-llm/bin/python -m uvicorn src.server:app --host 0.0.0.0 --port 8002"
 
 start_bg_when_unhealthy "tts-wrapper" "http://localhost:8003/health" bash -lc \
   "cd services/tts && exec env TTS_RUNTIME='${TTS_RUNTIME:-openai_compatible}' OPENAI_TTS_BASE_URL='${OPENAI_TTS_BASE_URL:-http://localhost:9003/v1}' OPENAI_TTS_MODEL='${OPENAI_TTS_MODEL:-breezyvoice}' BREEZYVOICE_CACHE_DIR='${BREEZYVOICE_CACHE_DIR:-/tmp/jarvis-breezyvoice-audio/cache}' ../../.venv-tts/bin/python -m uvicorn src.server:app --host 0.0.0.0 --port 8003"

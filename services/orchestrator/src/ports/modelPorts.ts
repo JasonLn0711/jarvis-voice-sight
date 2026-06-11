@@ -36,6 +36,7 @@ export type TTSInput = {
   speed?: number;
   pitch?: number;
   emotionStyle?: string;
+  signal?: AbortSignal;
 };
 
 export type EmotionInput = {

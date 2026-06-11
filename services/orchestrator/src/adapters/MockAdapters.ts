@@ -20,6 +20,7 @@ import type {
   VADPort,
   VADResult
 } from "../ports/modelPorts.js";
+import { createToneWavBuffer } from "../utils/wav.js";
 
 function decodeMockText(audioBase64: string): string | undefined {
   if (audioBase64.startsWith("text:")) {
@@ -202,6 +203,7 @@ export class MockTTSAdapter implements TTSPort {
     }
     return {
       audioUrl: `/mock-audio/${encodeURIComponent(input.text)}.wav`,
+      audioBase64: createToneWavBuffer(240).toString("base64"),
       ttsCacheHit: [
         "好，我在。",
         "你說。",

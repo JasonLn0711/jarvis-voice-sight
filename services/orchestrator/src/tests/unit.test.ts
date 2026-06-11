@@ -4,10 +4,11 @@ import {
   TtsQueue,
   VadStateManager,
   TurnPlaybackGuard,
-  buildMergedAudioMetadata,
   planTtsChunks,
   splitTtsSentences
 } from "@jarvis/shared";
+import { parsePcm16Wav, stitchNormalizePcm16Wavs } from "../utils/audioStitcher.js";
+import { createSilentWavBuffer, createToneWavBuffer } from "../utils/wav.js";
 import { AdapterFactory } from "../factories/AdapterFactory.js";
 import { loadConfig } from "../config/env.js";
 import { CircuitBreaker } from "../domain/CircuitBreaker.js";
@@ -265,19 +266,20 @@ describe("long-form TTS primitives", () => {
     expect(plan.chunks.every((chunk) => chunk.turnId === "turn_30s")).toBe(true);
   });
 
-  it("builds merge metadata with bounded sentence silence padding", () => {
-    expect(buildMergedAudioMetadata(
-      [
-        { sequence: 1, durationMs: 1200 },
-        { sequence: 0, durationMs: 1000 }
-      ],
+  it("normalizes real PCM WAV chunks and stitches silence-padded audio", () => {
+    const stitched = stitchNormalizePcm16Wavs(
+      [createToneWavBuffer(100, 16000, 4000), createSilentWavBuffer(100, 16000)],
       160
-    )).toMatchObject({
-      sampleRateVerified: true,
-      normalized: true,
-      silencePaddingMs: 160,
-      totalDurationMs: 2360
-    });
+    );
+    const parsed = parsePcm16Wav(stitched.buffer);
+
+    expect(stitched.normalized).toBe(true);
+    expect(stitched.sampleRate).toBe(16000);
+    expect(stitched.silencePaddingMs).toBe(160);
+    expect(stitched.chunkCount).toBe(2);
+    expect(stitched.totalDurationMs).toBe(360);
+    expect(parsed.samples.length).toBe(5760);
+    expect(Math.max(...Array.from(parsed.samples, (sample) => Math.abs(sample)))).toBeGreaterThan(29000);
   });
 });
 

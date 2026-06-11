@@ -73,6 +73,10 @@ export type AudioStitchMetadata = {
   normalized: true;
   silence_padding_ms: number;
   total_duration_ms: number;
+  sample_rate_hz?: number;
+  chunk_count?: number;
+  stitched_bytes?: number;
+  audio_base64?: string;
 };
 
 export type VoiceTurnStatus = "ok" | "partial" | "error";

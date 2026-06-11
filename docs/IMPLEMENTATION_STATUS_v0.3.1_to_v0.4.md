@@ -28,7 +28,7 @@ bounded parallel TTS synthesis
 ordered audio_chunk streaming
 chunk-level cache keyed by speaker, normalized text, style, and model version
 time-to-first-audio latency fields
-merge metadata for sample-rate verification, loudness normalization, and silence padding
+real PCM WAV stitching with sample-rate verification, peak normalization, bounded silence padding, and parseable stitched-audio evidence
 ```
 
 The streaming audio event contract is:
@@ -90,9 +90,8 @@ TTS_MODEL_VERSION=breezyvoice-default
 ```text
 long-form TTS is sentence-level, not token-level
 browser VAD is still lightweight RMS-driven
-browser barge-in aborts the active stream and server scheduling stops after stream close
-audio normalization and silence padding are represented as orchestrator merge metadata
-real WAV concatenation still needs BreezyVoice sample-rate validation
+browser barge-in aborts the active stream and propagates an AbortSignal into HTTP TTS requests
+real WAV concatenation now exists for PCM 16-bit WAV chunks and still needs a live BreezyVoice long-form evidence capture
 Taiwan Mandarin voice quality work is planned but not implemented
 ```
 
@@ -156,7 +155,7 @@ speaker-encoder adapted version
 ```text
 BreezyVoice parallelism may saturate GPU memory; keep TTS_MAX_PARALLEL_CHUNKS bounded
 long chunks can still delay first audio if sentence estimates are too optimistic
-transport-level cancellation stops new chunk scheduling; in-flight upstream TTS abort support is the next refinement
-real audio merge needs sample-rate and loudness validation with BreezyVoice outputs
+transport-level cancellation now reaches HTTP TTS fetch calls; provider-specific upstream cancellation still depends on the TTS runtime honoring request abort
+real audio merge should be re-measured with BreezyVoice outputs under GPU load
 Taiwan Mandarin quality depends on consented data quality and transcript alignment
 ```

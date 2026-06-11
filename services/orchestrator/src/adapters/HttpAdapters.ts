@@ -20,12 +20,19 @@ import type {
 } from "../ports/modelPorts.js";
 import { withTimeout } from "../utils/timeout.js";
 
-async function postJson(url: string, body: unknown, timeoutMs: number, error: () => Error): Promise<unknown> {
+async function postJson(
+  url: string,
+  body: unknown,
+  timeoutMs: number,
+  error: () => Error,
+  signal?: AbortSignal
+): Promise<unknown> {
   const response = await withTimeout(
     fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      ...(signal ? { signal } : {})
     }),
     timeoutMs,
     error
@@ -175,7 +182,8 @@ export class HttpTTSAdapter implements TTSPort {
       this.timeoutMs,
       () => {
         return new TTSTimeoutError("TTS service timed out");
-      }
+      },
+      input.signal
     );
     const result = ttsResultSchema.parse(payload);
     if (result.audioUrl?.startsWith("/")) {

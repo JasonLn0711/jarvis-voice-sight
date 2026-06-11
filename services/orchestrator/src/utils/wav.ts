@@ -19,3 +19,15 @@ export function createSilentWavBuffer(durationMs = 240, sampleRate = 16000): Buf
 
   return buffer;
 }
+
+export function createToneWavBuffer(durationMs = 240, sampleRate = 16000, amplitude = 8000): Buffer {
+  const samples = Math.floor((durationMs / 1000) * sampleRate);
+  const dataSize = samples * 2;
+  const buffer = createSilentWavBuffer(durationMs, sampleRate);
+  for (let index = 0; index < samples; index += 1) {
+    const value = Math.round(Math.sin((index / sampleRate) * Math.PI * 2 * 440) * amplitude);
+    buffer.writeInt16LE(value, 44 + index * 2);
+  }
+  buffer.writeUInt32LE(dataSize, 40);
+  return buffer;
+}

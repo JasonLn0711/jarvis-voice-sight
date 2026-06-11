@@ -85,7 +85,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma4:e2b
 
 VLLM_BASE_URL=http://localhost:8000/v1
-VLLM_MODEL=gemma-4-e2b
+VLLM_MODEL=google/gemma-4-E2B-it
 ```
 
 Ollama / vLLM 只管理 LLM。ASR 與 TTS 維持獨立 service。

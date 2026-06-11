@@ -3,7 +3,6 @@ import {
   SentenceBuffer,
   TtsChunkCache,
   TtsQueue,
-  buildMergedAudioMetadata,
   createTtsCacheKey,
   normalizeTtsText,
   planTtsChunks,
@@ -18,6 +17,7 @@ import {
 } from "@jarvis/shared";
 import type { VoiceTurnDependencies } from "./VoiceTurnUseCase.js";
 import { createTurnId } from "./VoiceTurnUseCase.js";
+import { stitchNormalizePcm16Wavs } from "../utils/audioStitcher.js";
 import { elapsedMs, measure, nowMs } from "../utils/time.js";
 
 export type StreamingVoiceTurnEvent =
@@ -188,7 +188,7 @@ export class StreamingVoiceTurnUseCase {
           queue.cancel(context.turnId);
           return;
         }
-        yield* this.handleSentence(context, queue, sentence, sequence);
+        yield* this.handleSentence(context, queue, sentence, sequence, signal);
         sequence += 1;
       }
     }
@@ -199,7 +199,7 @@ export class StreamingVoiceTurnUseCase {
         queue.cancel(context.turnId);
         return;
       }
-      yield* this.handleSentence(context, queue, remaining, sequence);
+      yield* this.handleSentence(context, queue, remaining, sequence, signal);
     }
     context.latency.llm_ms = Math.max(context.latency.llm_ms, elapsedMs(llmStart));
   }
@@ -208,7 +208,8 @@ export class StreamingVoiceTurnUseCase {
     context: StreamingContext,
     queue: TtsQueue,
     rawSentence: string,
-    sequence: number
+    sequence: number,
+    signal?: AbortSignal
   ): AsyncGenerator<StreamingVoiceTurnEvent> {
     const sentence = this.finalizeReply(context, rawSentence);
     if (!sentence) {
@@ -239,6 +240,7 @@ export class StreamingVoiceTurnUseCase {
         voiceId: "jarvis_default_zh_tw",
         turnId: item.turnId,
         speed: 1,
+        ...(signal ? { signal } : {}),
         ...(context.emotion ? { emotionStyle: context.emotion.label } : {})
       })
     );
@@ -292,6 +294,7 @@ export class StreamingVoiceTurnUseCase {
 
     const startedAt = nowMs();
     const ready = new Map<number, Awaited<ReturnType<StreamingVoiceTurnUseCase["synthesizeChunk"]>>>();
+    const yieldedResults: Array<Awaited<ReturnType<StreamingVoiceTurnUseCase["synthesizeChunk"]>>> = [];
     const inFlight = new Set<Promise<void>>();
     let nextToStart = 0;
     let nextToYield = 0;
@@ -308,7 +311,7 @@ export class StreamingVoiceTurnUseCase {
           continue;
         }
         let task: Promise<void>;
-        task = this.synthesizeChunk(context, chunk).then((result) => {
+        task = this.synthesizeChunk(context, chunk, signal).then((result) => {
           ready.set(chunk.index, result);
         }).finally(() => {
           inFlight.delete(task);
@@ -353,6 +356,7 @@ export class StreamingVoiceTurnUseCase {
       context.latency.tts_total_synthesis_ms = elapsedMs(startedAt);
       context.latency.tts_cache_hit_count = (context.latency.tts_cache_hit_count ?? 0) + (result.cacheHit ? 1 : 0);
       context.latency.tts_cache_miss_count = (context.latency.tts_cache_miss_count ?? 0) + (result.cacheHit ? 0 : 1);
+      yieldedResults.push(result);
 
       yield {
         type: "audio_chunk",
@@ -373,21 +377,24 @@ export class StreamingVoiceTurnUseCase {
       startNext();
     }
 
-    const mergeStart = nowMs();
-    const mergedAudio = buildMergedAudioMetadata(
-      plan.chunks.map((chunk) => ({ sequence: chunk.index, durationMs: chunk.estimatedDurationMs })),
-      this.deps.config.TTS_SENTENCE_SILENCE_MS
-    );
-    context.audioStitch = {
-      sample_rate_verified: mergedAudio.sampleRateVerified,
-      normalized: mergedAudio.normalized,
-      silence_padding_ms: mergedAudio.silencePaddingMs,
-      total_duration_ms: mergedAudio.totalDurationMs
-    };
-    context.latency.tts_merge_ms = elapsedMs(mergeStart);
+    if (!signal?.aborted && yieldedResults.length > 0) {
+      const mergeStart = nowMs();
+      const mergedAudio = await this.stitchAudioChunks(yieldedResults);
+      context.audioStitch = {
+        sample_rate_verified: true,
+        normalized: mergedAudio.normalized,
+        silence_padding_ms: mergedAudio.silencePaddingMs,
+        total_duration_ms: mergedAudio.totalDurationMs,
+        sample_rate_hz: mergedAudio.sampleRate,
+        chunk_count: mergedAudio.chunkCount,
+        stitched_bytes: mergedAudio.buffer.length,
+        audio_base64: mergedAudio.buffer.toString("base64")
+      };
+      context.latency.tts_merge_ms = elapsedMs(mergeStart);
+    }
   }
 
-  private async synthesizeChunk(context: StreamingContext, chunk: TtsChunk): Promise<{
+  private async synthesizeChunk(context: StreamingContext, chunk: TtsChunk, signal?: AbortSignal): Promise<{
     chunk: TtsChunk;
     tts: TTSResult;
     ttsMs: number;
@@ -429,6 +436,7 @@ export class StreamingVoiceTurnUseCase {
         voiceId: speakerId,
         turnId: context.turnId,
         speed: 1,
+        ...(signal ? { signal } : {}),
         ...(context.emotion ? { emotionStyle: context.emotion.label } : {})
       })
     );
@@ -453,6 +461,28 @@ export class StreamingVoiceTurnUseCase {
       audioEncodeMs,
         cacheHit: false
       };
+  }
+
+  private async stitchAudioChunks(
+    results: Array<Awaited<ReturnType<StreamingVoiceTurnUseCase["synthesizeChunk"]>>>
+  ) {
+    const ordered = [...results].sort((a, b) => a.chunk.index - b.chunk.index);
+    const buffers = await Promise.all(ordered.map((result) => this.resolveTtsAudioBuffer(result.tts)));
+    return stitchNormalizePcm16Wavs(buffers, this.deps.config.TTS_SENTENCE_SILENCE_MS);
+  }
+
+  private async resolveTtsAudioBuffer(tts: TTSResult): Promise<Buffer> {
+    if (tts.audioBase64) {
+      return Buffer.from(tts.audioBase64, "base64");
+    }
+    if (tts.audioUrl?.startsWith("http://") || tts.audioUrl?.startsWith("https://")) {
+      const response = await fetch(tts.audioUrl);
+      if (!response.ok) {
+        throw new Error(`Could not fetch TTS audio ${tts.audioUrl}: ${response.status}`);
+      }
+      return Buffer.from(await response.arrayBuffer());
+    }
+    throw new Error("TTS result must include audioBase64 or an absolute audioUrl for real audio stitching");
   }
 
   private async prepareTurn(context: StreamingContext): Promise<boolean> {

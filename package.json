@@ -19,6 +19,7 @@
     "real:health": "tsx scripts/real_health.ts",
     "real:pull-gemma": "scripts/pull_gemma4_e2b.sh",
     "real:start-ollama": "scripts/start_ollama_docker.sh",
+    "real:start-vllm": "scripts/start_vllm_openai.sh",
     "real:start-asr": "scripts/start_breeze_asr_gpu.sh",
     "real:start-breezyvoice": "scripts/start_breezyvoice_upstream_gpu.sh",
     "real:preflight": "scripts/real_model_preflight.sh",

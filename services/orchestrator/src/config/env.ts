@@ -22,7 +22,7 @@ const envSchema = z.object({
   OLLAMA_BASE_URL: z.string().url().default("http://localhost:11434"),
   OLLAMA_MODEL: z.string().default("gemma4:e2b"),
   VLLM_BASE_URL: z.string().url().default("http://localhost:8000/v1"),
-  VLLM_MODEL: z.string().default("gemma-4-e2b"),
+  VLLM_MODEL: z.string().default("google/gemma-4-E2B-it"),
   TTS_PROVIDER: providerSchema.default("mock"),
   TTS_SERVICE_URL: z.string().url().default("http://localhost:8003"),
   ENABLE_EMOTION: z
